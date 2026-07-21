@@ -1,0 +1,42 @@
+# Web API
+fastapi
+uvicorn[standard]
+python-multipart
+
+# AI / LLM
+langchain
+langchain-community
+langchain-ollama
+ollama
+sentence-transformers
+
+# Vector Database
+chromadb
+
+# Digital Forensics
+volatility3
+
+# Database
+sqlalchemy
+aiosqlite
+
+# Validation
+pydantic
+pydantic-settings
+
+# Reporting
+reportlab
+jinja2
+
+# Configuration
+python-dotenv
+pyyaml
+
+# Utilities
+httpx
+aiofiles
+loguru
+
+# Testing
+pytest
+pytest-asyncio

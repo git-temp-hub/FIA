@@ -1,0 +1,25 @@
+application:
+  name: "<app_name>"
+  version: "<app_version>"
+  environment: "<environment>"
+
+server:
+  host: "<host>"
+  port: "<port>"
+
+database:
+  path: "<database_path>"
+
+vector_database:
+  path: "<vector_db_path>"
+
+ollama:
+  base_url: "<ollama_base_url>"
+  model: "<ollama_model>"
+
+logging:
+  level: "<log_level>"
+  config_path: "<logging_config_path>"
+
+reporting:
+  output_directory: "<report_directory>"
