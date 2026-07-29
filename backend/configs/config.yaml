@@ -1,25 +1,25 @@
 application:
-  name: "<app_name>"
-  version: "<app_version>"
-  environment: "<environment>"
+  name: "AI Memory Forensic Investigation Assistant"
+  version: "1.0.0"
+  environment: "development"
 
 server:
-  host: "<host>"
-  port: "<port>"
+  host: "127.0.0.1"
+  port: 8000
 
 database:
-  path: "<database_path>"
+  path: "storage/database/fia.db"
 
 vector_database:
-  path: "<vector_db_path>"
+  path: "storage/vectors"
 
 ollama:
-  base_url: "<ollama_base_url>"
-  model: "<ollama_model>"
+  base_url: "http://localhost:11434"
+  model: "llama3.2"
 
 logging:
-  level: "<log_level>"
-  config_path: "<logging_config_path>"
+  level: "INFO"
+  config_path: "configs/logging.yaml"
 
 reporting:
-  output_directory: "<report_directory>"
+  output_directory: "storage/reports"
