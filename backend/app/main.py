@@ -136,9 +136,9 @@ async def health_check() -> dict[str, str]:
         "application": settings.application.name,
     }
 
-# ==============================================================================
-# Future Router Registration
-# ==============================================================================
+from app.api.routes.upload import router as upload_router
+
+app.include_router(upload_router)
 
 # Future API routers will be registered here.
 #
