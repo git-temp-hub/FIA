@@ -14,7 +14,10 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes.investigation import router as investigation_router
+from app.api.routes.upload import router as upload_router
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.database.database import database_manager
@@ -31,8 +34,6 @@ async def lifespan(app: FastAPI):
     """
     Manage the application lifecycle.
 
-    This function is executed automatically by FastAPI.
-
     Startup:
         - Verify configuration
         - Initialize infrastructure
@@ -46,20 +47,9 @@ async def lifespan(app: FastAPI):
     logger.info("Starting AI Memory Forensic Investigation Assistant")
     logger.info("=" * 70)
 
-    logger.info(
-        "Application: %s",
-        settings.application.name,
-    )
-
-    logger.info(
-        "Version: %s",
-        settings.application.version,
-    )
-
-    logger.info(
-        "Environment: %s",
-        settings.application.environment,
-    )
+    logger.info("Application: %s", settings.application.name)
+    logger.info("Version: %s", settings.application.version)
+    logger.info("Environment: %s", settings.application.environment)
 
     logger.info("Initializing infrastructure...")
 
@@ -73,8 +63,8 @@ async def lifespan(app: FastAPI):
     finally:
 
         logger.info("Shutting down FIA backend...")
-
         logger.info("Application shutdown completed.")
+
 
 # ==============================================================================
 # FastAPI Application
@@ -89,6 +79,26 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
+# ==============================================================================
+# CORS Configuration
+# ==============================================================================
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ==============================================================================
+# API Routers
+# ==============================================================================
+
+app.include_router(upload_router)
+app.include_router(investigation_router)
 
 # ==============================================================================
 # Root Endpoint
@@ -135,20 +145,6 @@ async def health_check() -> dict[str, str]:
         "database": "connected",
         "application": settings.application.name,
     }
-
-from app.api.routes.upload import router as upload_router
-
-app.include_router(upload_router)
-
-# Future API routers will be registered here.
-#
-# Example:
-#
-# from app.api.routes.upload import router as upload_router
-# from app.api.routes.investigation import router as investigation_router
-#
-# app.include_router(upload_router, prefix="/api/v1")
-# app.include_router(investigation_router, prefix="/api/v1")
 
 
 # ==============================================================================
