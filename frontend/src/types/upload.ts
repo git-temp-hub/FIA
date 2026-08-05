@@ -13,15 +13,3 @@ export interface UploadResponse {
   stored_path: string;
 
 }
-
-export interface UploadState {
-
-  uploading: boolean;
-
-  progress: number;
-
-  error: string | null;
-
-  completed: boolean;
-
-}

@@ -298,9 +298,9 @@ def environment_overrides() -> dict[str, Any]:
 
         "ollama": {
 
-            "base_url": os.getenv("OLLAMA_BASE_URL"),
+            "base_url": os.getenv("OLLAMA_HOST"),
 
-            "model": os.getenv("OLLAMA_MODEL"),
+            "model": os.getenv("LLM_MODEL"),
         },
 
         "logging": {

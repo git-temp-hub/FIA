@@ -12,8 +12,8 @@ from __future__ import annotations
 from typing import Final
 
 from app.core.logging import get_logger
-from app.rag.embedding_manager import EmbeddingManager
-from app.rag.vector_store import VectorStore
+from app.services.rag.embedding_manager import EmbeddingManager
+from app.services.rag.vector_store import VectorStore
 
 logger = get_logger(__name__)
 
@@ -63,6 +63,7 @@ class Retriever:
         self,
         question: str,
         top_k: int = DEFAULT_TOP_K,
+        where: dict | None = None,
     ) -> dict:
         """
         Retrieve the most relevant forensic evidence.
@@ -74,6 +75,9 @@ class Retriever:
 
         top_k : int
             Number of documents to retrieve.
+
+        where : dict | None
+            Optional ChromaDB metadata filter.
 
         Returns
         -------
@@ -93,7 +97,87 @@ class Retriever:
         return self._vector_store.search(
             embedding=query_embedding,
             limit=top_k,
+            where=where,
         )
+
+    # ------------------------------------------------------------------
+
+    def retrieve_by_investigation(
+        self,
+        question: str,
+        investigation_id: str,
+        top_k: int = DEFAULT_TOP_K,
+    ) -> dict:
+        """
+        Retrieve evidence restricted to a single investigation.
+        """
+
+        return self.retrieve(
+            question=question,
+            top_k=top_k,
+            where={"investigation_id": investigation_id},
+        )
+
+    # ------------------------------------------------------------------
+
+    def retrieve_ranked(
+        self,
+        question: str,
+        top_k: int = DEFAULT_TOP_K,
+        where: dict | None = None,
+    ) -> list[dict]:
+        """
+        Retrieve evidence as a ranked list with document, metadata,
+        and similarity score.
+        """
+
+        result = self.retrieve(
+            question=question,
+            top_k=top_k,
+            where=where,
+        )
+
+        ids = result.get("ids", [[]])[0]
+        documents = result.get("documents", [[]])[0]
+        metadatas = result.get("metadatas", [[]])[0]
+        distances = result.get("distances", [[]])[0]
+
+        ranked: list[dict] = []
+
+        for index, document_id in enumerate(ids):
+
+            distance = (
+                distances[index]
+                if index < len(distances)
+                else None
+            )
+
+            ranked.append({
+                "id": document_id,
+                "document": (
+                    documents[index]
+                    if index < len(documents)
+                    else ""
+                ),
+                "metadata": (
+                    metadatas[index]
+                    if index < len(metadatas)
+                    else {}
+                ),
+                "distance": distance,
+                "score": (
+                    round(1.0 / (1.0 + distance), 4)
+                    if distance is not None
+                    else None
+                ),
+            })
+
+        logger.info(
+            "Retrieved %d ranked documents.",
+            len(ranked),
+        )
+
+        return ranked
 
     # ------------------------------------------------------------------
 

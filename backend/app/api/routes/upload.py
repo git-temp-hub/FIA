@@ -9,9 +9,14 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
+from app.database.database import get_db
+from app.database.repositories import CaseRepository, MemoryDumpRepository
+from app.models.case import Case
+from app.models.memory_dump import MemoryDump
 from app.services.investigation_service import investigation_service
 from app.utils.investigation_id import generate_investigation_id
 
@@ -26,6 +31,7 @@ router = APIRouter(
 @router.post("/")
 async def upload_memory_dump(
     file: UploadFile = File(...),
+    db: Session = Depends(get_db),
 ):
     """
     Upload a memory dump and create a new investigation.
@@ -54,6 +60,31 @@ async def upload_memory_dump(
             temporary_path,
         )
 
+        case_repository = CaseRepository(db)
+        memory_dump_repository = MemoryDumpRepository(db)
+
+        case = Case(
+            case_name=investigation_id,
+            investigator="default",
+            description=f"Memory dump investigation: {metadata.filename}",
+        )
+
+        case_repository.create(case)
+
+        memory_dump_record = MemoryDump(
+            case_id=case.id,
+            investigation_id=investigation_id,
+            filename=metadata.filename,
+            original_path=str(metadata.original_path),
+            stored_path=str(metadata.stored_path),
+            sha256_hash=metadata.sha256,
+            file_size=metadata.file_size,
+            status="uploaded",
+            progress=0,
+        )
+
+        memory_dump_repository.create(memory_dump_record)
+
         logger.info(
             "Investigation created: %s",
             investigation_id,
@@ -68,14 +99,29 @@ async def upload_memory_dump(
             "stored_path": str(metadata.stored_path),
         }
 
-    except Exception as exc:
+    except HTTPException:
+        raise
 
-        logger.exception("Upload failed.")
-
+    except ValueError as exc:
+        logger.warning(
+            "Upload rejected for filename '%s': %s",
+            file.filename,
+            exc,
+        )
         raise HTTPException(
             status_code=400,
             detail=str(exc),
+        ) from exc
+
+    except Exception as exc:
+        logger.exception(
+            "Upload failed for filename '%s'.",
+            file.filename,
         )
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected error occurred during upload.",
+        ) from exc
 
     finally:
 

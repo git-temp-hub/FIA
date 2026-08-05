@@ -15,7 +15,7 @@ vector_database:
 
 ollama:
   base_url: "http://localhost:11434"
-  model: "llama3.2"
+  model: "qwen3:14b"
 
 logging:
   level: "INFO"

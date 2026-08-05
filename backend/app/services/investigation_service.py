@@ -17,11 +17,12 @@ Responsibilities
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from app.core.logging import get_logger
-from app.volatility.execution_engine import execution_engine
+from app.volatility.execution_engine import ExecutionResult, execution_engine
 from app.volatility.memory_dump_manager import memory_dump_manager
 
 logger = get_logger(__name__)
@@ -135,6 +136,99 @@ class InvestigationService:
             memory_dump=memory_dump,
             plugins=plugins,
         )
+
+    # ------------------------------------------------------------------
+    # Investigation Run
+    # ------------------------------------------------------------------
+
+    def run_investigation(
+        self,
+        memory_dump: Path,
+        plugins: list[str],
+        on_plugin_started: Callable[[str], None] | None = None,
+        on_plugin_completed: (
+            Callable[[int, int, ExecutionResult, float], None] | None
+        ) = None,
+    ) -> list[ExecutionResult]:
+        """
+        Execute an investigation across the provided plugins.
+
+        Individual plugin failures are captured in their ExecutionResult
+        and never terminate the investigation.
+
+        Parameters
+        ----------
+        memory_dump : Path
+
+        plugins : list[str]
+
+        on_plugin_started : Callable, optional
+            Invoked with the plugin name before it runs.
+
+        on_plugin_completed : Callable, optional
+            Invoked after each plugin with
+            (index, total, ExecutionResult, execution_time_seconds).
+
+        Returns
+        -------
+        list[ExecutionResult]
+        """
+
+        logger.info(
+            "Starting investigation on %s with %d plugins.",
+            memory_dump,
+            len(plugins),
+        )
+
+        results: list[ExecutionResult] = []
+
+        total = len(plugins)
+
+        for index, plugin_name in enumerate(plugins):
+
+            if on_plugin_started is not None:
+                on_plugin_started(plugin_name)
+
+            started_at = time.monotonic()
+
+            try:
+                result = self.execute_plugin(
+                    memory_dump=memory_dump,
+                    plugin_name=plugin_name,
+                )
+            except Exception as exc:
+                logger.exception(
+                    "Plugin '%s' raised during execution.",
+                    plugin_name,
+                )
+                result = ExecutionResult(
+                    plugin=plugin_name,
+                    success=False,
+                    return_code=-1,
+                    stdout="",
+                    stderr=str(exc),
+                    json_output=None,
+                )
+
+            execution_time = time.monotonic() - started_at
+
+            results.append(result)
+
+            if on_plugin_completed is not None:
+                on_plugin_completed(
+                    index,
+                    total,
+                    result,
+                    execution_time,
+                )
+
+        logger.info(
+            "Investigation on %s completed with %d plugin results.",
+            memory_dump,
+            len(results),
+        )
+
+        return results
 
     # ------------------------------------------------------------------
     # Complete Investigation Workflow

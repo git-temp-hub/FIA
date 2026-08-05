@@ -1,19 +1,25 @@
+import { Loader2 } from "lucide-react";
+
 interface Props {
   disabled: boolean;
+  uploading: boolean;
   onUpload: () => void;
 }
 
 export default function UploadActions({
   disabled,
+  uploading,
   onUpload,
 }: Props) {
   return (
     <button
-      disabled={disabled}
+      type="button"
+      disabled={disabled || uploading}
       onClick={onUpload}
-      className="rounded-xl bg-cyan-500 px-8 py-3 font-semibold text-black transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:bg-slate-700"
+      className="flex items-center gap-2 rounded-xl bg-cyan-500 px-8 py-3 font-semibold text-black transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:bg-slate-700"
     >
-      Upload Memory Dump
+      {uploading && <Loader2 className="animate-spin" size={18} />}
+      {uploading ? "Uploading..." : "Upload Memory Dump"}
     </button>
   );
 }

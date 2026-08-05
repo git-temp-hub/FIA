@@ -9,7 +9,7 @@ Author:
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
@@ -51,7 +51,7 @@ class PluginExecutionRepository(BaseRepository[PluginExecution]):
                 PluginExecution.memory_dump_id == memory_dump_id
             )
             .order_by(
-                PluginExecution.started_at.desc()
+                PluginExecution.executed_at.desc()
             )
         )
 
@@ -73,7 +73,7 @@ class PluginExecutionRepository(BaseRepository[PluginExecution]):
                 PluginExecution.plugin_name == plugin_name
             )
             .order_by(
-                PluginExecution.started_at.desc()
+                PluginExecution.executed_at.desc()
             )
         )
 
@@ -95,7 +95,7 @@ class PluginExecutionRepository(BaseRepository[PluginExecution]):
         statement = (
             select(PluginExecution)
             .where(
-                PluginExecution.status == "running"
+                PluginExecution.execution_status == "running"
             )
         )
 
@@ -113,7 +113,7 @@ class PluginExecutionRepository(BaseRepository[PluginExecution]):
         statement = (
             select(PluginExecution)
             .where(
-                PluginExecution.status == "completed"
+                PluginExecution.execution_status == "completed"
             )
         )
 
@@ -131,10 +131,37 @@ class PluginExecutionRepository(BaseRepository[PluginExecution]):
         statement = (
             select(PluginExecution)
             .where(
-                PluginExecution.status == "failed"
+                PluginExecution.execution_status == "failed"
             )
         )
 
         return list(
             self.session.scalars(statement).all()
         )
+
+    # ------------------------------------------------------------------
+    # Statistics
+    # ------------------------------------------------------------------
+
+    def execution_stats(
+        self,
+    ) -> dict[str, int]:
+        """
+        Return the number of executions grouped by status.
+        """
+
+        statement = (
+            select(
+                PluginExecution.execution_status,
+                func.count(PluginExecution.id),
+            )
+            .group_by(
+                PluginExecution.execution_status
+            )
+        )
+
+        return {
+            status: count
+            for status, count in
+            self.session.execute(statement).all()
+        }

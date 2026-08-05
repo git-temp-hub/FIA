@@ -3,6 +3,8 @@ import {
   Upload,
   Search,
   FileSearch,
+  Sparkles,
+  Bot,
   FileText,
   Settings,
   ShieldCheck,
@@ -30,6 +32,16 @@ const menu = [
     name: "Evidence",
     path: "/evidence",
     icon: FileSearch,
+  },
+  {
+    name: "Semantic Search",
+    path: "/rag",
+    icon: Sparkles,
+  },
+  {
+    name: "AI Investigation",
+    path: "/ai",
+    icon: Bot,
   },
   {
     name: "Reports",

@@ -132,9 +132,19 @@ class VectorStore:
         self,
         embedding: list[float],
         limit: int = 5,
+        where: dict | None = None,
     ) -> dict:
         """
         Perform similarity search.
+
+        Parameters
+        ----------
+        embedding : list[float]
+
+        limit : int
+
+        where : dict | None
+            Optional ChromaDB metadata filter.
         """
 
         logger.info(
@@ -142,10 +152,57 @@ class VectorStore:
             limit,
         )
 
+        query_kwargs = {
+            "query_embeddings": [embedding],
+            "n_results": limit,
+        }
+
+        if where:
+            query_kwargs["where"] = where
+
         return self._collection.query(
-            query_embeddings=[embedding],
-            n_results=limit,
+            **query_kwargs,
         )
+
+    # ------------------------------------------------------------------
+
+    def get_by_metadata(
+        self,
+        where: dict,
+    ) -> list[str]:
+        """
+        Return the ids of documents matching a metadata filter.
+        """
+
+        return self._collection.get(
+            where=where,
+        )["ids"]
+
+    # ------------------------------------------------------------------
+
+    def delete_by_metadata(
+        self,
+        where: dict,
+    ) -> int:
+        """
+        Delete every document matching a metadata filter.
+
+        Returns the number of deleted documents.
+        """
+
+        matching_ids = self.get_by_metadata(where)
+
+        if matching_ids:
+            self._collection.delete(
+                where=where,
+            )
+
+        logger.info(
+            "Deleted %d documents matching metadata filter.",
+            len(matching_ids),
+        )
+
+        return len(matching_ids)
 
     # ------------------------------------------------------------------
 

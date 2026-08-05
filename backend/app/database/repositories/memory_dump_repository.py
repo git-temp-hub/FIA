@@ -9,12 +9,16 @@ Author:
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from datetime import datetime, timedelta
+
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
 from app.database.repositories.base_repository import BaseRepository
 from app.models.memory_dump import MemoryDump
+from app.models.plugin_execution import PluginExecution
+from app.models.plugin_result import PluginResult
 
 logger = get_logger(__name__)
 
@@ -67,6 +71,21 @@ class MemoryDumpRepository(BaseRepository[MemoryDump]):
 
         return self.session.scalar(statement)
 
+    def get_by_investigation_id(
+        self,
+        investigation_id: str,
+    ) -> MemoryDump | None:
+        """
+        Return a memory dump by investigation identifier.
+        """
+
+        statement = (
+            select(MemoryDump)
+            .where(MemoryDump.investigation_id == investigation_id)
+        )
+
+        return self.session.scalar(statement)
+
     # ------------------------------------------------------------------
     # Case Queries
     # ------------------------------------------------------------------
@@ -82,7 +101,7 @@ class MemoryDumpRepository(BaseRepository[MemoryDump]):
         statement = (
             select(MemoryDump)
             .where(MemoryDump.case_id == case_id)
-            .order_by(MemoryDump.created_at.desc())
+            .order_by(MemoryDump.uploaded_at.desc())
         )
 
         return list(
@@ -117,4 +136,84 @@ class MemoryDumpRepository(BaseRepository[MemoryDump]):
         return (
             self.get_by_filename(filename)
             is not None
+        )
+
+    # ------------------------------------------------------------------
+    # Statistics
+    # ------------------------------------------------------------------
+
+    def list_recent_with_evidence(
+        self,
+        limit: int = 5,
+    ) -> list[tuple]:
+        """
+        Return recent investigations with their evidence counts.
+        """
+
+        statement = (
+            select(
+                MemoryDump.investigation_id,
+                MemoryDump.filename,
+                MemoryDump.status,
+                MemoryDump.progress,
+                MemoryDump.uploaded_at,
+                func.count(PluginResult.id).label(
+                    "evidence_count"
+                ),
+            )
+            .select_from(MemoryDump)
+            .outerjoin(
+                PluginExecution,
+                PluginExecution.memory_dump_id == MemoryDump.id,
+            )
+            .outerjoin(
+                PluginResult,
+                PluginResult.plugin_execution_id == PluginExecution.id,
+            )
+            .group_by(MemoryDump.id)
+            .order_by(MemoryDump.uploaded_at.desc())
+            .limit(limit)
+        )
+
+        return list(
+            self.session.execute(statement).all()
+        )
+
+    def count_by_day(
+        self,
+        days: int = 7,
+    ) -> list[tuple]:
+        """
+        Return the number of investigations created per day for
+        the last ``days`` days.
+        """
+
+        start = (
+            datetime.utcnow()
+            - timedelta(days=days - 1)
+        ).replace(
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+
+        statement = (
+            select(
+                func.date(MemoryDump.uploaded_at),
+                func.count(MemoryDump.id),
+            )
+            .where(
+                MemoryDump.uploaded_at >= start
+            )
+            .group_by(
+                func.date(MemoryDump.uploaded_at)
+            )
+            .order_by(
+                func.date(MemoryDump.uploaded_at)
+            )
+        )
+
+        return list(
+            self.session.execute(statement).all()
         )

@@ -1,44 +1,68 @@
 import {
   Brain,
   Database,
-  Search,
   FileSearch,
+  FileText,
+  Gauge,
+  Search,
 } from "lucide-react";
 
 import StatisticCard from "./StatisticCard";
 
-export default function DashboardGrid() {
+import type { DashboardStats } from "../../types/dashboard";
+
+interface DashboardGridProps {
+  stats: DashboardStats;
+}
+
+function formatNumber(value: number): string {
+  return value.toLocaleString();
+}
+
+export default function DashboardGrid({ stats }: DashboardGridProps) {
   return (
-    <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
-
-      <StatisticCard
-        title="Memory Dumps"
-        value="12"
-        subtitle="Uploaded investigations"
-        icon={Database}
-      />
-
+    <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
       <StatisticCard
         title="Investigations"
-        value="8"
-        subtitle="Completed analyses"
+        value={formatNumber(stats.total_investigations)}
+        subtitle="Registered investigations"
         icon={Search}
       />
 
       <StatisticCard
+        title="Memory Dumps"
+        value={formatNumber(stats.total_memory_dumps)}
+        subtitle="Uploaded memory images"
+        icon={Database}
+      />
+
+      <StatisticCard
+        title="Evidence"
+        value={formatNumber(stats.total_evidence)}
+        subtitle="Indexed artifacts"
+        icon={FileSearch}
+      />
+
+      <StatisticCard
+        title="Reports"
+        value={formatNumber(stats.total_reports)}
+        subtitle="Generated PDF reports"
+        icon={FileText}
+      />
+
+      <StatisticCard
         title="AI Queries"
-        value="56"
+        value={formatNumber(stats.total_ai_queries)}
         subtitle="Questions answered"
         icon={Brain}
       />
 
       <StatisticCard
-        title="Evidence"
-        value="1,284"
-        subtitle="Indexed artifacts"
-        icon={FileSearch}
+        title="Plugin Success"
+        value={`${stats.plugin_execution_success_rate.toFixed(1)}%`}
+        subtitle={`${stats.plugin_executions_total} total executions`}
+        icon={Gauge}
       />
-
     </div>
   );
 }

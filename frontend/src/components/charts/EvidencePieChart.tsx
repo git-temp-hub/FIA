@@ -4,59 +4,73 @@ import {
   Cell,
   Tooltip,
   ResponsiveContainer,
+  Legend,
 } from "recharts";
 
-const data = [
-  { name: "Processes", value: 40 },
-  { name: "Network", value: 20 },
-  { name: "Registry", value: 15 },
-  { name: "Memory", value: 25 },
-];
+import type { DashboardEvidenceDistribution } from "../../types/dashboard";
+
+interface EvidencePieChartProps {
+  data: DashboardEvidenceDistribution[];
+}
 
 const colors = [
   "#06b6d4",
   "#3b82f6",
   "#8b5cf6",
   "#14b8a6",
+  "#f59e0b",
+  "#ef4444",
+  "#22c55e",
+  "#ec4899",
 ];
 
-export default function EvidencePieChart() {
+export default function EvidencePieChart({ data }: EvidencePieChartProps) {
+  const chartData = data.map((item) => ({
+    name: item.artifact_type,
+    value: item.count,
+  }));
+
+  if (chartData.length === 0) {
+    return (
+      <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+        <h2 className="mb-6 text-xl font-semibold text-white">
+          Evidence Distribution
+        </h2>
+
+        <div className="flex h-80 items-center justify-center">
+          <p className="text-slate-500">No evidence has been indexed yet.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-
       <h2 className="mb-6 text-xl font-semibold text-white">
-        Evidence Distribution
+        Evidence Distribution by Artifact Type
       </h2>
 
       <div className="h-80">
-
         <ResponsiveContainer>
-
           <PieChart>
-
             <Pie
-              data={data}
+              data={chartData}
               dataKey="value"
-              outerRadius={100}
+              nameKey="name"
+              outerRadius={110}
+              label
             >
-
-              {data.map((_, index) => (
-                <Cell
-                  key={index}
-                  fill={colors[index]}
-                />
+              {chartData.map((_, index) => (
+                <Cell key={index} fill={colors[index % colors.length]} />
               ))}
-
             </Pie>
 
             <Tooltip />
 
+            <Legend />
           </PieChart>
-
         </ResponsiveContainer>
-
       </div>
-
     </div>
   );
 }

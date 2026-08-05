@@ -13,6 +13,7 @@ from ollama import Client
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.config import ENV_FILE
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -22,7 +23,7 @@ class LLMSettings(BaseSettings):
     """Configuration values for the Ollama LLM manager."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(ENV_FILE),
         env_file_encoding="utf-8",
         extra="ignore",
         validate_assignment=True,

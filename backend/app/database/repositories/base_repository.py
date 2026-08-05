@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Generic, TypeVar
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
@@ -91,6 +91,20 @@ class BaseRepository(Generic[ModelType]):
 
         return list(
             self.session.scalars(statement).all()
+        )
+
+    def count(self) -> int:
+        """
+        Return the total number of entities.
+        """
+
+        statement = select(
+            func.count()
+        ).select_from(self.model)
+
+        return (
+            self.session.scalar(statement)
+            or 0
         )
 
     # ------------------------------------------------------------------

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from sqlalchemy import Boolean
 from sqlalchemy import DateTime
 from sqlalchemy import Integer
 from sqlalchemy import String
@@ -61,6 +62,12 @@ class Case(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,
+        nullable=False,
+    )
+
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
         nullable=False,
     )
 

@@ -109,6 +109,8 @@ class DatabaseManager:
 
         logger.info("Initializing SQLite database...")
 
+        import app.models  # noqa: F401
+
         Base.metadata.create_all(bind=self.engine)
 
         self.verify_connection()
@@ -187,8 +189,6 @@ def get_db():
 # ==============================================================================
 
 database_manager = DatabaseManager()
-
-database_manager.initialize()
 
 
 # ==============================================================================

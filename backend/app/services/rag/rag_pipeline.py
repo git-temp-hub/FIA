@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from app.core.logging import get_logger
 from app.llm.llm_manager import LLMManager
-from app.rag.retriever import Retriever
+from app.services.rag.retriever import Retriever
 
 logger = get_logger(__name__)
 
@@ -88,6 +88,7 @@ class RAGPipeline:
         self,
         question: str,
         top_k: int = 5,
+        where: dict | None = None,
     ) -> dict:
         """
         Retrieve the most relevant forensic evidence.
@@ -99,6 +100,9 @@ class RAGPipeline:
 
         top_k : int
             Number of documents to retrieve.
+
+        where : dict | None
+            Optional ChromaDB metadata filter.
 
         Returns
         -------
@@ -113,6 +117,47 @@ class RAGPipeline:
         return self.retriever.retrieve(
             question=question,
             top_k=top_k,
+            where=where,
+        )
+
+    # ------------------------------------------------------------------
+
+    def search_evidence(
+        self,
+        question: str,
+        top_k: int = 5,
+        investigation_id: str | None = None,
+    ) -> list[dict]:
+        """
+        Retrieve evidence as a ranked list of matches.
+
+        Parameters
+        ----------
+        question : str
+            Investigator question.
+
+        top_k : int
+            Number of documents to retrieve.
+
+        investigation_id : str | None
+            Restrict results to one investigation.
+
+        Returns
+        -------
+        list[dict]
+            Ranked matches with document, metadata, and score.
+        """
+
+        where = (
+            {"investigation_id": investigation_id}
+            if investigation_id
+            else None
+        )
+
+        return self.retriever.retrieve_ranked(
+            question=question,
+            top_k=top_k,
+            where=where,
         )
 
     # ------------------------------------------------------------------
@@ -323,3 +368,30 @@ ANSWER
             "evidence": evidence,
             "metadata": metadata,
         }
+
+
+# ==============================================================================
+# Shared Pipeline
+# ==============================================================================
+
+# Share the embedding model and ChromaDB client across the application
+# (indexing, retrieval, and AI assistant) so the model loads only once.
+from app.services.rag.indexing_service import rag_indexing_service  # noqa: E402
+from app.services.rag.retriever import Retriever  # noqa: E402
+
+rag_pipeline = RAGPipeline(
+    retriever=Retriever(
+        embedding_manager=rag_indexing_service.embedding_manager,
+        vector_store=rag_indexing_service.vector_store,
+    )
+)
+
+
+# ==============================================================================
+# Public Exports
+# ==============================================================================
+
+__all__ = [
+    "RAGPipeline",
+    "rag_pipeline",
+]

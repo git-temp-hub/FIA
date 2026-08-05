@@ -12,3 +12,12 @@ body {
   font-family: Inter, system-ui, sans-serif;
   background: #0b1220;
 }
+
+@keyframes toast-dismiss {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}

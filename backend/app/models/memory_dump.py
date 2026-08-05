@@ -11,7 +11,6 @@ Author:
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
 
 from sqlalchemy import DateTime
 from sqlalchemy import ForeignKey
@@ -60,6 +59,18 @@ class MemoryDump(Base):
         nullable=False,
     )
 
+    sha256_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+    )
+
+    investigation_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+    )
+
     operating_system: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True,
@@ -87,6 +98,12 @@ class MemoryDump(Base):
         nullable=False,
     )
 
+    progress: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+
     volatility_profile: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
@@ -106,12 +123,6 @@ class MemoryDump(Base):
     back_populates="memory_dump",
     cascade="all, delete-orphan",
 )
-
-    plugin_results: Mapped[list["PluginResult"]] = relationship(
-        "PluginResult",
-        back_populates="memory_dump",
-        cascade="all, delete-orphan",
-    )
 
     def __repr__(self) -> str:
         """
