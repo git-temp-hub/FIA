@@ -17,6 +17,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from sqlalchemy import create_engine
+from sqlalchemy import inspect
+from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Session
@@ -77,11 +79,94 @@ class Base(DeclarativeBase):
     pass
 
 # ==============================================================================
+# Lightweight Migrations
+# ==============================================================================
+
+
+def ensure_chat_session_column(engine: Engine) -> None:
+    """
+    Backward-compatible schema migration for existing databases.
+
+    Adds the nullable ``chat_messages.session_id`` column used to isolate
+    conversation sessions inside an investigation. The column is only
+    added when it is missing, so existing rows are never modified.
+    """
+
+    table_exists = inspect(engine).has_table("chat_messages")
+
+    if not table_exists:
+        return
+
+    with engine.connect() as connection:
+        columns = {
+            row[1]
+            for row in connection.execute(
+                text("PRAGMA table_info(chat_messages)")
+            )
+        }
+
+        if "session_id" not in columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE chat_messages "
+                    "ADD COLUMN session_id VARCHAR(64)"
+                )
+            )
+            connection.commit()
+            logger.info("Added chat_messages.session_id column.")
+
+
+def ensure_evidence_risk_columns(engine: Engine) -> None:
+    """
+    Backward-compatible schema migration for existing databases.
+
+    Adds the nullable risk-classification columns to ``plugin_results``
+    used by the evidence classifier. Columns are only added when missing,
+    so existing rows are never modified.
+    """
+
+    table_exists = inspect(engine).has_table("plugin_results")
+
+    if not table_exists:
+        return
+
+    additions = {
+        "risk_level": "VARCHAR(20)",
+        "risk_reasons": "TEXT",
+        "risk_indicators": "TEXT",
+        "rule_version": "VARCHAR(20)",
+    }
+
+    with engine.connect() as connection:
+        columns = {
+            row[1]
+            for row in connection.execute(
+                text("PRAGMA table_info(plugin_results)")
+            )
+        }
+
+        for column_name, column_ddl in additions.items():
+
+            if column_name not in columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE plugin_results "
+                        f"ADD COLUMN {column_name} {column_ddl}"
+                    )
+                )
+                connection.commit()
+                logger.info(
+                    "Added plugin_results.%s column.",
+                    column_name,
+                )
+
+
+# ==============================================================================
 # Database Manager
 # ==============================================================================
 
 
-class DatabaseManager:
+class DatabaseManager:      
     """
     Centralized database manager.
 
@@ -112,6 +197,10 @@ class DatabaseManager:
         import app.models  # noqa: F401
 
         Base.metadata.create_all(bind=self.engine)
+
+        ensure_chat_session_column(self.engine)
+
+        ensure_evidence_risk_columns(self.engine)
 
         self.verify_connection()
 

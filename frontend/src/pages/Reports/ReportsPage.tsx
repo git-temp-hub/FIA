@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 import { listEvidenceInvestigations } from "../../services/evidenceService";
+import { getStoredSessionId } from "../../services/chatSession";
 import {
   downloadReport,
   generateReport,
@@ -253,7 +254,10 @@ export default function ReportsPage() {
     setMessage(null);
 
     try {
-      const result = await generateReport(investigationId);
+      const result = await generateReport(
+        investigationId,
+        getStoredSessionId(investigationId),
+      );
       setMessage(result.message);
 
       const list = await listReports();

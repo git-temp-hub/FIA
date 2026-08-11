@@ -105,6 +105,7 @@ async def chat_query(
     chat_repository.create(
         ChatMessage(
             investigation_id=request.investigation_id,
+            session_id=request.session_id,
             role="user",
             content=request.question,
         )
@@ -113,6 +114,7 @@ async def chat_query(
     chat_repository.create(
         ChatMessage(
             investigation_id=request.investigation_id,
+            session_id=request.session_id,
             role="assistant",
             content=result["answer"],
             citations=json.dumps(result["citations"]),
@@ -132,6 +134,7 @@ async def chat_query(
 
     return ChatQueryResponse(
         investigation_id=request.investigation_id,
+        session_id=request.session_id,
         question=result["question"],
         answer=result["answer"],
         confidence=result["confidence"],
@@ -147,16 +150,18 @@ async def chat_query(
 )
 async def chat_history(
     investigation_id: str,
+    session_id: str | None = None,
     db: Session = Depends(get_db),
 ):
     """
-    Return the saved conversation history for an investigation.
+    Return the saved conversation history for an investigation session.
     """
 
     chat_repository = ChatMessageRepository(db)
 
     messages = chat_repository.get_by_investigation(
-        investigation_id
+        investigation_id,
+        session_id=session_id,
     )
 
     history: list[ChatHistoryMessage] = []
@@ -193,5 +198,6 @@ async def chat_history(
 
     return ChatHistoryResponse(
         investigation_id=investigation_id,
+        session_id=session_id,
         messages=history,
     )

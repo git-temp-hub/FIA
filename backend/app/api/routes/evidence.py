@@ -6,6 +6,7 @@ Browse normalized forensic evidence produced by the investigation pipeline.
 
 from __future__ import annotations
 
+import json
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -25,8 +26,8 @@ from app.schemas.evidence import (
     EvidenceInvestigationSummary,
     EvidenceItem,
     EvidenceListResponse,
-    severity_for,
 )
+from app.services.evidence_classifier import evidence_classifier
 
 logger = get_logger(__name__)
 
@@ -36,12 +37,64 @@ router = APIRouter(
 )
 
 
+def _corpus_row(
+    result: PluginResult,
+) -> dict:
+    """Build a correlation corpus record from a PluginResult row."""
+
+    return {
+        "id": result.id,
+        "plugin": result.artifact_name,
+        "artifact_type": result.artifact_type,
+        "artifact_value": result.artifact_value,
+    }
+
+
+def _load_json_list(value: str | None) -> list[str]:
+    """Parse a persisted JSON list column value, tolerating empty/malformed."""
+
+    if not value:
+        return []
+
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return []
+
+    if not isinstance(parsed, list):
+        return []
+
+    return [str(item) for item in parsed]
+
+
 def _serialize_item(
     result: PluginResult,
+    corpus: list[dict] | None = None,
 ) -> EvidenceItem:
     """
     Build an EvidenceItem from a PluginResult row.
+
+    Severity is the EvidenceClassifier's risk level: persisted when the
+    record was classified at ingestion, otherwise derived on the fly from
+    artifact indicators and cross-plugin correlation. It is independent of
+    the stored ``confidence_score`` (extraction trust).
     """
+
+    if result.risk_level is not None:
+        severity = result.risk_level
+        reasons = _load_json_list(result.risk_reasons)
+        indicators = _load_json_list(result.risk_indicators)
+    else:
+        classification = evidence_classifier.classify(
+            plugin=result.plugin_execution.plugin_name,
+            artifact_type=result.artifact_type,
+            artifact_value=result.artifact_value,
+            corpus=corpus,
+            evidence_id=result.id,
+        )
+        severity = classification.severity
+        reasons = classification.reasons
+        indicators = classification.indicators
 
     return EvidenceItem(
         id=result.id,
@@ -50,7 +103,10 @@ def _serialize_item(
         artifact_name=result.artifact_name,
         artifact_value=result.artifact_value,
         confidence_score=result.confidence_score,
-        severity=severity_for(result.confidence_score),
+        severity=severity,
+        classification_state=severity,
+        risk_reasons=reasons,
+        risk_indicators=indicators,
         created_at=result.created_at,
     )
 
@@ -102,7 +158,13 @@ async def list_evidence(
     investigation_id: str | None = None,
     plugin: str | None = None,
     artifact_type: str | None = None,
-    severity: Literal["high", "medium", "low"] | None = None,
+    severity: Literal[
+        "high",
+        "medium",
+        "low",
+        "unknown",
+        "insufficient-evidence",
+    ] | None = None,
     search: str | None = None,
     sort_by: Literal["id", "artifact_type", "artifact_name", "created_at"] = "id",
     sort_order: Literal["asc", "desc"] = "desc",
@@ -131,8 +193,21 @@ async def list_evidence(
 
         total_pages = (total + page_size - 1) // page_size if total else 0
 
+        corpus: list[dict] = []
+
+        if investigation_id:
+            corpus = [
+                _corpus_row(result)
+                for result in repository.get_by_investigation(
+                    investigation_id
+                )
+            ]
+
         return EvidenceListResponse(
-            items=[_serialize_item(result) for result in results],
+            items=[
+                _serialize_item(result, corpus)
+                for result in results
+            ],
             total=total,
             page=page,
             page_size=page_size,
@@ -195,6 +270,36 @@ async def evidence_detail(
         if memory_dump is not None:
             investigation_id = memory_dump.investigation_id
 
+    corpus: list[dict] = []
+
+    if investigation_id:
+        corpus = [
+            _corpus_row(row)
+            for row in plugin_result_repository.get_by_investigation(
+                investigation_id
+            )
+        ]
+
+    if result.risk_level is not None:
+        severity = result.risk_level
+        reasons = _load_json_list(result.risk_reasons)
+        indicators = _load_json_list(result.risk_indicators)
+    else:
+        classification = evidence_classifier.classify(
+            plugin=(
+                execution.plugin_name
+                if execution is not None
+                else result.artifact_name
+            ),
+            artifact_type=result.artifact_type,
+            artifact_value=result.artifact_value,
+            corpus=corpus,
+            evidence_id=result.id,
+        )
+        severity = classification.severity
+        reasons = classification.reasons
+        indicators = classification.indicators
+
     return EvidenceDetailResponse(
         id=result.id,
         plugin_execution_id=result.plugin_execution_id,
@@ -207,7 +312,10 @@ async def evidence_detail(
         artifact_name=result.artifact_name,
         artifact_value=result.artifact_value,
         confidence_score=result.confidence_score,
-        severity=severity_for(result.confidence_score),
+        severity=severity,
+        classification_state=severity,
+        risk_reasons=reasons,
+        risk_indicators=indicators,
         created_at=result.created_at,
         memory_dump_id=memory_dump_id,
         investigation_id=investigation_id,

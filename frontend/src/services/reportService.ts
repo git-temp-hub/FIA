@@ -13,9 +13,14 @@ export async function listReports(): Promise<ReportListResponse> {
 
 export async function generateReport(
   investigationId: string,
+  sessionId?: string | null,
 ): Promise<ReportGenerateResponse> {
   const response = await api.post<ReportGenerateResponse>(
     `/reports/generate/${encodeURIComponent(investigationId)}`,
+    undefined,
+    {
+      params: sessionId ? { session_id: sessionId } : undefined,
+    },
   );
   return response.data;
 }

@@ -138,7 +138,7 @@ async def health_check():
     except Exception:
 
         logger.exception("Database connectivity failed.")
-
+           
     return {
         "status": "healthy" if database_status == "connected" else "unhealthy",
         "database": database_status,

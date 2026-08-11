@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 def severity_for(confidence_score: int | None) -> str:
@@ -45,6 +45,12 @@ class EvidenceItem(BaseModel):
     confidence_score: int
 
     severity: str
+
+    classification_state: str = "unknown"
+
+    risk_reasons: list[str] = Field(default_factory=list)
+
+    risk_indicators: list[str] = Field(default_factory=list)
 
     created_at: datetime
 
@@ -85,6 +91,12 @@ class EvidenceDetailResponse(BaseModel):
     confidence_score: int
 
     severity: str
+
+    classification_state: str = "unknown"
+
+    risk_reasons: list[str] = Field(default_factory=list)
+
+    risk_indicators: list[str] = Field(default_factory=list)
 
     created_at: datetime
 

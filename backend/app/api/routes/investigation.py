@@ -34,6 +34,10 @@ from app.services.investigation_service import (
     investigation_service,
 )
 
+from app.services.risk_classification_service import (
+    classify_investigation_evidence,
+)
+
 logger = get_logger(__name__)
 
 router = APIRouter(
@@ -221,6 +225,21 @@ async def start_investigation(
     memory_dump_record.progress = 100
 
     memory_dump_repository.update(memory_dump_record)
+
+    try:
+
+        classify_investigation_evidence(
+            db,
+            request.investigation_id,
+        )
+
+    except Exception as exc:
+
+        logger.warning(
+            "Risk classification failed for investigation '%s': %s",
+            request.investigation_id,
+            exc,
+        )
 
     try:
 

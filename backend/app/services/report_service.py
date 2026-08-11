@@ -209,9 +209,13 @@ class ReportService:
         self,
         investigation_id: str,
         session: Session,
+        session_id: str | None = None,
     ) -> dict[str, Any]:
         """
         Collect every piece of data needed for a report.
+
+        When ``session_id`` is provided, only chat messages belonging to
+        that conversation session are included in the AI summary.
 
         Raises
         ------
@@ -249,7 +253,8 @@ class ReportService:
         )
 
         chat_messages = chat_message_repository.get_by_investigation(
-            investigation_id
+            investigation_id,
+            session_id=session_id,
         )
 
         successful = [
@@ -317,6 +322,7 @@ class ReportService:
         self,
         investigation_id: str,
         session: Session,
+        session_id: str | None = None,
     ) -> dict[str, Any]:
         """
         Generate a complete investigation report.
@@ -337,6 +343,7 @@ class ReportService:
         data = self.gather_investigation_data(
             investigation_id,
             session,
+            session_id=session_id,
         )
 
         data["statistics"] = {

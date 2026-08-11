@@ -14,6 +14,8 @@ class ChatQueryRequest(BaseModel):
 
     investigation_id: str
 
+    session_id: str | None = None
+
     question: str = Field(..., min_length=1)
 
     top_k: int = Field(6, ge=1, le=20)
@@ -41,6 +43,8 @@ class ChatQueryResponse(BaseModel):
     """Evidence-backed AI answer."""
 
     investigation_id: str
+
+    session_id: str | None = None
 
     question: str
 
@@ -72,9 +76,11 @@ class ChatHistoryMessage(BaseModel):
 
 
 class ChatHistoryResponse(BaseModel):
-    """Full conversation history for an investigation."""
+    """Full conversation history for an investigation session."""
 
     investigation_id: str
+
+    session_id: str | None = None
 
     messages: list[ChatHistoryMessage]
 

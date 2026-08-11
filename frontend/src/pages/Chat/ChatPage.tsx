@@ -8,12 +8,18 @@ import {
   AlertCircle,
   Bot,
   Loader2,
+  Plus,
   Send,
   ShieldCheck,
   User,
 } from "lucide-react";
 
 import { getChatHistory, queryChat } from "../../services/chatService";
+import {
+  getOrCreateSessionId,
+  getStoredSessionId,
+  startSession,
+} from "../../services/chatSession";
 import { listEvidenceInvestigations } from "../../services/evidenceService";
 
 import type { EvidenceInvestigationSummary } from "../../types/evidence";
@@ -153,6 +159,9 @@ export default function ChatPage() {
     searchParams.get("id") ?? "",
   );
 
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
   const [messages, setMessages] = useState<ChatMessageView[]>([]);
   const [question, setQuestion] = useState("");
 
@@ -180,13 +189,17 @@ export default function ChatPage() {
       setError(null);
 
       if (!investigationId) {
+        setSessionId(null);
         setLoadingHistory(false);
         return;
       }
 
+      const activeSession = getOrCreateSessionId(investigationId);
+      setSessionId(activeSession);
+
       setLoadingHistory(true);
 
-      getChatHistory(investigationId)
+      getChatHistory(investigationId, activeSession)
         .then((response) => {
           setMessages(
             response.messages.map((message) => ({
@@ -204,7 +217,16 @@ export default function ChatPage() {
     }, 0);
 
     return () => clearTimeout(timer);
-  }, [investigationId]);
+  }, [investigationId, reloadKey]);
+
+  function handleNewSession() {
+    if (!investigationId) return;
+
+    startSession(investigationId);
+    setSessionId(getStoredSessionId(investigationId));
+    setMessages([]);
+    setReloadKey((key) => key + 1);
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -215,6 +237,9 @@ export default function ChatPage() {
 
     const trimmed = question.trim();
     if (!trimmed || !investigationId || sending) return;
+
+    const activeSession =
+      sessionId ?? getOrCreateSessionId(investigationId);
 
     setQuestion("");
     setError(null);
@@ -227,7 +252,11 @@ export default function ChatPage() {
     setSending(true);
 
     try {
-      const response = await queryChat(investigationId, trimmed);
+      const response = await queryChat(
+        investigationId,
+        trimmed,
+        activeSession,
+      );
 
       setMessages((previous) => [
         ...previous,
@@ -278,24 +307,36 @@ export default function ChatPage() {
           Investigation
         </label>
 
-        <select
-          value={investigationId}
-          onChange={(event) => setInvestigationId(event.target.value)}
-          className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-3 text-white outline-none focus:border-cyan-500 md:w-[480px]"
-        >
-          <option value="">
-            Select an investigation to begin chatting
-          </option>
-
-          {investigations.map((item) => (
-            <option
-              key={item.investigation_id}
-              value={item.investigation_id}
-            >
-              {item.investigation_id} — {item.filename}
+        <div className="flex flex-wrap items-center gap-3">
+          <select
+            value={investigationId}
+            onChange={(event) => setInvestigationId(event.target.value)}
+            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-3 text-white outline-none focus:border-cyan-500 md:w-[480px]"
+          >
+            <option value="">
+              Select an investigation to begin chatting
             </option>
-          ))}
-        </select>
+
+            {investigations.map((item) => (
+              <option
+                key={item.investigation_id}
+                value={item.investigation_id}
+              >
+                {item.investigation_id} — {item.filename}
+              </option>
+            ))}
+          </select>
+
+          <button
+            type="button"
+            onClick={handleNewSession}
+            disabled={!investigationId || sending}
+            className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-4 py-3 text-sm font-medium text-slate-300 transition hover:bg-slate-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Plus size={16} />
+            New Session
+          </button>
+        </div>
       </div>
 
       <div className="flex min-h-[55vh] flex-col rounded-xl border border-slate-800 bg-slate-900/50">

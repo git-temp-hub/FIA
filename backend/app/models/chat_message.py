@@ -42,6 +42,12 @@ class ChatMessage(Base):
         index=True,
     )
 
+    session_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+    )
+
     role: Mapped[str] = mapped_column(
         String(20),
         nullable=False,

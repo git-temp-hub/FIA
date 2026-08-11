@@ -16,6 +16,7 @@ from sqlalchemy import DateTime
 from sqlalchemy import ForeignKey
 from sqlalchemy import Integer
 from sqlalchemy import String
+from sqlalchemy import Text
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
@@ -68,6 +69,27 @@ class PluginResult(Base):
         Integer,
         default=100,
         nullable=False,
+    )
+
+    risk_level: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+        index=True,
+    )
+
+    risk_reasons: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    risk_indicators: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    rule_version: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
     )
 
     created_at: Mapped[datetime] = mapped_column(

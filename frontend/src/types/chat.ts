@@ -10,6 +10,7 @@ export interface EvidenceReference {
 
 export interface ChatQueryResponse {
   investigation_id: string;
+  session_id?: string | null;
   question: string;
   answer: string;
   confidence: number;
@@ -29,5 +30,6 @@ export interface ChatHistoryMessage {
 
 export interface ChatHistoryResponse {
   investigation_id: string;
+  session_id?: string | null;
   messages: ChatHistoryMessage[];
 }

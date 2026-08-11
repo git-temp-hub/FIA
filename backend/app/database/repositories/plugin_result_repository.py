@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.logging import get_logger
@@ -198,20 +198,15 @@ class PluginResultRepository(BaseRepository[PluginResult]):
         severity: str,
     ) -> Any:
         """
-        Translate a severity label into a confidence score predicate.
+        Translate a severity label into a persisted risk level predicate.
+
+        The filter operates on the classifier's ``risk_level`` column
+        (not the confidence score). Records that were never classified
+        (NULL ``risk_level``) do not match any severity filter.
         """
 
-        if severity == "high":
-            return PluginResult.confidence_score >= 90
-
-        if severity == "medium":
-            return and_(
-                PluginResult.confidence_score >= 70,
-                PluginResult.confidence_score < 90,
-            )
-
-        if severity == "low":
-            return PluginResult.confidence_score < 70
+        if severity in {"high", "medium", "low", "unknown", "insufficient-evidence"}:
+            return PluginResult.risk_level == severity
 
         return None
 

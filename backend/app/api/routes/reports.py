@@ -60,10 +60,14 @@ def _report_info(report: Report) -> ReportInfo:
 )
 async def generate_report(
     investigation_id: str,
+    session_id: str | None = None,
     db: Session = Depends(get_db),
 ):
     """
     Generate a complete investigation report and store its metadata.
+
+    An optional ``session_id`` restricts the AI Investigation Summary
+    to a single conversation session.
     """
 
     memory_dump_repository = MemoryDumpRepository(db)
@@ -84,6 +88,7 @@ async def generate_report(
         generated = report_service.generate(
             investigation_id,
             db,
+            session_id=session_id,
         )
     except Exception as exc:
         logger.exception(

@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 
 import { useSearchParams } from "react-router-dom";
 
 import {
   AlertCircle,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   FileSearch,
   Loader2,
   Search,
@@ -41,6 +43,7 @@ const SEVERITY_STYLES: Record<string, string> = {
   medium: "bg-yellow-500/20 text-yellow-400",
   low: "bg-slate-500/20 text-slate-300",
   unknown: "bg-slate-600/20 text-slate-400",
+  "insufficient-evidence": "bg-slate-600/20 text-slate-400",
 };
 
 function formatDate(value: string): string {
@@ -108,6 +111,8 @@ export default function EvidencePage() {
   const [data, setData] = useState<EvidenceListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const [detail, setDetail] = useState<EvidenceDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -208,6 +213,10 @@ export default function EvidencePage() {
     } finally {
       setDetailLoading(false);
     }
+  }
+
+  function toggleExpanded(item: EvidenceItem) {
+    setExpandedId((current) => (current === item.id ? null : item.id));
   }
 
   function toggleSort(key: EvidenceFilters["sort_by"]) {
@@ -328,6 +337,8 @@ export default function EvidencePage() {
             <option value="high">High</option>
             <option value="medium">Medium</option>
             <option value="low">Low</option>
+            <option value="unknown">Unknown</option>
+            <option value="insufficient-evidence">Insufficient</option>
           </select>
         </div>
 
@@ -380,6 +391,8 @@ export default function EvidencePage() {
             <table className="w-full text-left text-sm">
               <thead className="border-b border-slate-700 text-xs uppercase text-slate-400">
                 <tr>
+                  <th className="w-8 px-2 py-3"></th>
+
                   {SORT_COLUMNS.map((column) => (
                     <th
                       key={column.key}
@@ -413,35 +426,92 @@ export default function EvidencePage() {
               </thead>
 
               <tbody className="divide-y divide-slate-800">
-                {data?.items.map((item) => (
-                  <tr
-                    key={item.id}
-                    onClick={() => handleSelectEvidence(item)}
-                    className="cursor-pointer transition hover:bg-slate-800/60"
-                  >
-                    <td className="px-4 py-3 font-mono text-slate-500">
-                      {item.id}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-cyan-400">
-                      {item.plugin}
-                    </td>
-                    <td className="px-4 py-3 text-slate-300">
-                      {item.artifact_type}
-                    </td>
-                    <td className="max-w-xs truncate px-4 py-3 text-slate-200">
-                      {item.artifact_name}
-                    </td>
-                    <td className="px-4 py-3 text-slate-400">
-                      {item.confidence_score}%
-                    </td>
-                    <td className="px-4 py-3">
-                      <SeverityBadge severity={item.severity} />
-                    </td>
-                    <td className="px-4 py-3 text-slate-500">
-                      {formatDate(item.created_at)}
-                    </td>
-                  </tr>
-                ))}
+                {data?.items.map((item) => {
+                  const isExpanded = expandedId === item.id;
+                  const reasons = item.risk_reasons ?? [];
+                  const indicators = item.risk_indicators ?? [];
+
+                  return (
+                    <Fragment key={item.id}>
+                      <tr
+                        onClick={() => handleSelectEvidence(item)}
+                        className="cursor-pointer transition hover:bg-slate-800/60"
+                      >
+                        <td className="px-2 py-3">
+                          <button
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              toggleExpanded(item);
+                            }}
+                            className="rounded p-1 text-slate-500 transition hover:bg-slate-800 hover:text-white"
+                            title={
+                              isExpanded
+                                ? "Hide reasoning"
+                                : "Show reasoning"
+                            }
+                          >
+                            {isExpanded ? (
+                              <ChevronUp size={16} />
+                            ) : (
+                              <ChevronDown size={16} />
+                            )}
+                          </button>
+                        </td>
+                        <td className="px-4 py-3 font-mono text-slate-500">
+                          {item.id}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-cyan-400">
+                          {item.plugin}
+                        </td>
+                        <td className="px-4 py-3 text-slate-300">
+                          {item.artifact_type}
+                        </td>
+                        <td className="max-w-xs truncate px-4 py-3 text-slate-200">
+                          {item.artifact_name}
+                        </td>
+                        <td className="px-4 py-3 text-slate-400">
+                          {item.confidence_score}%
+                        </td>
+                        <td className="px-4 py-3">
+                          <SeverityBadge severity={item.severity} />
+                        </td>
+                        <td className="px-4 py-3 text-slate-500">
+                          {formatDate(item.created_at)}
+                        </td>
+                      </tr>
+
+                      {isExpanded && (
+                        <tr className="bg-slate-950/60">
+                          <td></td>
+                          <td colSpan={7} className="px-4 py-3">
+                            <div className="space-y-2 text-sm">
+                              {reasons.length > 0 ? (
+                                <>
+                                  <ul className="list-inside list-disc space-y-1 text-slate-300">
+                                    {reasons.map((reason, index) => (
+                                      <li key={index}>{reason}</li>
+                                    ))}
+                                  </ul>
+
+                                  {indicators.length > 0 && (
+                                    <p className="font-mono text-xs text-slate-500">
+                                      Indicators: {indicators.join(", ")}
+                                    </p>
+                                  )}
+                                </>
+                              ) : (
+                                <p className="text-slate-500">
+                                  No risk indicators matched for this
+                                  evidence.
+                                </p>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -586,6 +656,33 @@ export default function EvidencePage() {
                 </dd>
               </div>
             </dl>
+
+            <div className="mt-6">
+              <p className="mb-2 block text-sm text-slate-500">
+                Risk Reasoning
+              </p>
+
+              <div className="rounded-lg border border-slate-700 bg-slate-950 p-4">
+                {(detail.risk_reasons ?? []).length > 0 ? (
+                  <ul className="list-inside list-disc space-y-1 text-sm text-slate-300">
+                    {(detail.risk_reasons ?? []).map((reason, index) => (
+                      <li key={index}>{reason}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-slate-500">
+                    No risk indicators matched for this evidence.
+                  </p>
+                )}
+
+                {(detail.risk_indicators ?? []).length > 0 && (
+                  <p className="mt-3 font-mono text-xs text-slate-500">
+                    Indicators:{" "}
+                    {(detail.risk_indicators ?? []).join(", ")}
+                  </p>
+                )}
+              </div>
+            </div>
 
             <div className="mt-6">
               <p className="mb-2 block text-sm text-slate-500">

@@ -37,9 +37,14 @@ class ChatMessageRepository(BaseRepository[ChatMessage]):
     def get_by_investigation(
         self,
         investigation_id: str,
+        session_id: str | None = None,
     ) -> list[ChatMessage]:
         """
         Return the conversation history for an investigation.
+
+        When ``session_id`` is provided the history is restricted to
+        messages belonging to that session. When it is omitted the
+        full per-investigation history is returned (legacy behavior).
         """
 
         statement = (
@@ -47,9 +52,15 @@ class ChatMessageRepository(BaseRepository[ChatMessage]):
             .where(
                 ChatMessage.investigation_id == investigation_id
             )
-            .order_by(
-                ChatMessage.id.asc()
+        )
+
+        if session_id is not None:
+            statement = statement.where(
+                ChatMessage.session_id == session_id
             )
+
+        statement = statement.order_by(
+            ChatMessage.id.asc()
         )
 
         return list(

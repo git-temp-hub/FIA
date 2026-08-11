@@ -6,6 +6,9 @@ export interface EvidenceItem {
   artifact_value: string;
   confidence_score: number;
   severity: string;
+  classification_state?: string;
+  risk_reasons?: string[];
+  risk_indicators?: string[];
   created_at: string;
 }
 
