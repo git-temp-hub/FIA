@@ -7,10 +7,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
+from app.database.database import SessionLocal
 from app.database.database import get_db
 from app.database.repositories import (
     CaseRepository,
@@ -28,10 +29,6 @@ from app.schemas.investigation import (
     InvestigationStartRequest,
     InvestigationStartResponse,
     InvestigationStatusResponse,
-)
-
-from app.services.investigation_service import (
-    investigation_service,
 )
 
 from app.services.risk_classification_service import (
@@ -60,14 +57,110 @@ DEFAULT_PLUGINS = [
 ]
 
 
+def compute_progress(
+    completed_plugins: int,
+    total_plugins: int,
+) -> int:
+    """
+    Compute the investigation progress percentage.
+
+    Progress reflects the number of plugins that have actually completed,
+    never elapsed time. 0/10 = 0%, 1/10 = 10%, ..., 10/10 = 100%.
+
+    Parameters
+    ----------
+    completed_plugins : int
+        Number of plugins that have finished.
+
+    total_plugins : int
+        Total number of plugins scheduled.
+
+    Returns
+    -------
+    int
+        Progress percentage clamped to [0, 100].
+    """
+
+    if total_plugins <= 0:
+        return 0
+
+    return min(100, int(completed_plugins / total_plugins * 100))
+
+
+def _run_evidence_indexing(
+    investigation_id: str,
+    session_factory=SessionLocal,
+) -> None:
+    """
+    Index an investigation's evidence into the vector store.
+
+    Runs on the request's background tasks with a fresh database session
+    so a slow or failing indexing pass never blocks the investigation
+    response. Failures are logged and swallowed on purpose.
+    """
+
+    try:
+
+        from app.services.rag.indexing_service import (
+            rag_indexing_service,
+        )
+
+        with session_factory() as db:
+
+            rag_indexing_service.index_investigation(
+                investigation_id,
+                db,
+            )
+
+    except Exception as exc:
+
+        logger.warning(
+            "RAG indexing failed for investigation '%s': %s",
+            investigation_id,
+            exc,
+        )
+
+
+def _run_risk_classification(
+    investigation_id: str,
+    session_factory=SessionLocal,
+) -> None:
+    """
+    Persist risk levels for an investigation's evidence.
+
+    Runs on the request's background tasks after indexing so a slow or
+    failing classification pass never blocks the investigation response.
+    Failures are logged and swallowed on purpose.
+    """
+
+    try:
+
+        with session_factory() as db:
+
+            classify_investigation_evidence(db, investigation_id)
+
+    except Exception as exc:
+
+        logger.warning(
+            "Risk classification failed for investigation '%s': %s",
+            investigation_id,
+            exc,
+        )
+
+
 @router.post(
     "/start",
     response_model=InvestigationStartResponse,
 )
 async def start_investigation(
     request: InvestigationStartRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
+
+    from app.services.investigation_service import (
+        investigation_service,
+    )
 
     memory_dump_repository = MemoryDumpRepository(db)
     case_repository = CaseRepository(db)
@@ -120,6 +213,10 @@ async def start_investigation(
     executions: dict[str, PluginExecution] = {}
 
     def on_plugin_started(plugin_name: str) -> None:
+
+        memory_dump_record.current_plugin = plugin_name
+
+        memory_dump_repository.update(memory_dump_record)
 
         execution = PluginExecution(
             memory_dump_id=memory_dump_record.id,
@@ -193,11 +290,22 @@ async def start_investigation(
                 result.plugin,
             )
 
-        memory_dump_record.progress = int(
-            (index + 1) / total * 100
+        completed = index + 1
+
+        memory_dump_record.progress = compute_progress(
+            completed,
+            total,
         )
 
         memory_dump_repository.update(memory_dump_record)
+
+        logger.info(
+            "Plugin progress: %d/%d (%d%%) - %s",
+            completed,
+            total,
+            memory_dump_record.progress,
+            result.plugin,
+        )
 
     try:
 
@@ -226,39 +334,17 @@ async def start_investigation(
 
     memory_dump_repository.update(memory_dump_record)
 
-    try:
-
-        classify_investigation_evidence(
-            db,
-            request.investigation_id,
-        )
-
-    except Exception as exc:
-
-        logger.warning(
-            "Risk classification failed for investigation '%s': %s",
-            request.investigation_id,
-            exc,
-        )
-
-    try:
-
-        from app.services.rag.indexing_service import (
-            rag_indexing_service,
-        )
-
-        rag_indexing_service.index_investigation(
-            request.investigation_id,
-            db,
-        )
-
-    except Exception as exc:
-
-        logger.warning(
-            "RAG indexing failed for investigation '%s': %s",
-            request.investigation_id,
-            exc,
-        )
+    # Post-processing runs after the response is sent so the caller gets the
+    # completed status immediately. Indexing runs before classification so a
+    # slow classification pass can never prevent evidence from being indexed.
+    background_tasks.add_task(
+        _run_evidence_indexing,
+        request.investigation_id,
+    )
+    background_tasks.add_task(
+        _run_risk_classification,
+        request.investigation_id,
+    )
 
     return InvestigationStartResponse(
         investigation_id=request.investigation_id,
@@ -277,6 +363,7 @@ async def investigation_status(
 ):
 
     memory_dump_repository = MemoryDumpRepository(db)
+    plugin_execution_repository = PluginExecutionRepository(db)
 
     record = memory_dump_repository.get_by_investigation_id(
         investigation_id
@@ -290,8 +377,39 @@ async def investigation_status(
             progress=0,
         )
 
+    executions = plugin_execution_repository.get_by_memory_dump(
+        record.id
+    )
+
+    completed_plugins = sum(
+        1
+        for execution in executions
+        if execution.execution_status == "completed"
+    )
+    failed_plugins = sum(
+        1
+        for execution in executions
+        if execution.execution_status == "failed"
+    )
+
+    failed_with_error = [
+        execution
+        for execution in executions
+        if execution.execution_status == "failed"
+        and execution.error_message
+    ]
+
     return InvestigationStatusResponse(
         investigation_id=investigation_id,
         status=record.status,
         progress=record.progress,
+        current_plugin=record.current_plugin,
+        total_plugins=len(executions),
+        completed_plugins=completed_plugins,
+        failed_plugins=failed_plugins,
+        last_error=(
+            failed_with_error[0].error_message
+            if failed_with_error
+            else None
+        ),
     )

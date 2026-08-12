@@ -10,6 +10,11 @@ export interface InvestigationStatus {
   investigation_id: string;
   status: string;
   progress: number;
+  current_plugin?: string | null;
+  total_plugins?: number;
+  completed_plugins?: number;
+  failed_plugins?: number;
+  last_error?: string | null;
 }
 
 export async function startInvestigation(

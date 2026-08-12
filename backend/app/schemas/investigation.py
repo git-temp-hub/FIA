@@ -22,3 +22,8 @@ class InvestigationStatusResponse(BaseModel):
     investigation_id: str
     status: str
     progress: int
+    current_plugin: str | None = None
+    total_plugins: int = 0
+    completed_plugins: int = 0
+    failed_plugins: int = 0
+    last_error: str | None = None

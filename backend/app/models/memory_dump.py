@@ -104,6 +104,11 @@ class MemoryDump(Base):
         nullable=False,
     )
 
+    current_plugin: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
     volatility_profile: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,

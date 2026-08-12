@@ -13,6 +13,7 @@ Existing records that already have a ``risk_level`` are left untouched.
 from __future__ import annotations
 
 import json
+from typing import Final
 
 from sqlalchemy.orm import Session
 
@@ -22,6 +23,11 @@ from app.services.evidence_classifier import evidence_classifier
 from app.services.evidence_classifier.scorer import RULE_VERSION
 
 logger = get_logger(__name__)
+
+# Commit classification progress in bounded batches instead of after every
+# record so very large investigations (~19k evidence rows) do not run in a
+# single giant transaction that is lost when the process is interrupted.
+CLASSIFICATION_COMMIT_BATCH: Final[int] = 500
 
 
 def classify_investigation_evidence(
@@ -68,9 +74,17 @@ def classify_investigation_evidence(
         record.risk_indicators = json.dumps(classification.indicators)
         record.rule_version = RULE_VERSION
 
-        repository.update(record)
-
         updated += 1
+
+        if updated % CLASSIFICATION_COMMIT_BATCH == 0:
+
+            session.commit()
+
+            logger.info(
+                "Classified %d evidence records for investigation '%s'.",
+                updated,
+                investigation_id,
+            )
 
     session.commit()
 

@@ -10,6 +10,9 @@ Author:
 
 from __future__ import annotations
 
+import math
+from typing import Final
+
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
@@ -21,6 +24,11 @@ from app.services.rag.embedding_manager import EmbeddingManager
 from app.services.rag.vector_store import VectorStore
 
 logger = get_logger(__name__)
+
+# ChromaDB rejects a single batch larger than its maximum (5461).
+# Target a conservative 1000 documents per embed/add so large
+# investigations (~19k evidence rows) index reliably.
+INDEXING_BATCH_SIZE: Final[int] = 1000
 
 
 class RAGIndexingService:
@@ -159,25 +167,49 @@ class RAGIndexingService:
                 "confidence_score": result.confidence_score,
             })
 
-        embeddings = self._embedding_manager.embed_documents(
-            documents
+        total = len(ids)
+
+        total_batches = math.ceil(
+            total / INDEXING_BATCH_SIZE
         )
 
-        self._vector_store.add_documents(
-            ids=ids,
-            documents=documents,
-            embeddings=embeddings,
-            metadatas=metadatas,
-        )
+        for batch_index in range(total_batches):
+
+            start = batch_index * INDEXING_BATCH_SIZE
+            end = min(start + INDEXING_BATCH_SIZE, total)
+
+            batch_ids = ids[start:end]
+            batch_documents = documents[start:end]
+            batch_metadatas = metadatas[start:end]
+
+            batch_embeddings = (
+                self._embedding_manager.embed_documents(
+                    batch_documents
+                )
+            )
+
+            self._vector_store.add_documents(
+                ids=batch_ids,
+                documents=batch_documents,
+                embeddings=batch_embeddings,
+                metadatas=batch_metadatas,
+            )
+
+            logger.info(
+                "Indexing batch %d/%d for investigation '%s'.",
+                batch_index + 1,
+                total_batches,
+                investigation_id,
+            )
 
         logger.info(
             "Indexed %d evidence records for investigation '%s'.",
-            len(ids),
+            total,
             investigation_id,
         )
 
         return {
-            "indexed": len(ids),
+            "indexed": total,
             "total": len(results),
             "removed": removed,
         }

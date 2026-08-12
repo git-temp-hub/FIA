@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
-import { FileArchive, Loader2, Play, Upload } from "lucide-react";
+import {
+  AlertTriangle,
+  FileArchive,
+  Loader2,
+  Play,
+  Upload,
+} from "lucide-react";
 
 import { getErrorMessage } from "../../services/api";
 import {
@@ -16,6 +22,8 @@ interface InvestigationInfo {
   sha256?: string;
   size?: number;
 }
+
+const POLLING_INTERVAL_MS = 1500;
 
 function statusStyle(status: string): string {
   if (status === "completed") return "bg-green-500/20 text-green-400";
@@ -49,6 +57,12 @@ export default function InvestigationPage() {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [currentPlugin, setCurrentPlugin] = useState<string | null>(null);
+  const [totalPlugins, setTotalPlugins] = useState(0);
+  const [completedPlugins, setCompletedPlugins] = useState(0);
+  const [failedPlugins, setFailedPlugins] = useState(0);
+  const [lastError, setLastError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!investigation) return;
 
@@ -56,15 +70,64 @@ export default function InvestigationPage() {
       .then((result) => {
         setStatus(result.status);
         setProgress(result.progress);
+        setCurrentPlugin(result.current_plugin ?? null);
+        setTotalPlugins(result.total_plugins ?? 0);
+        setCompletedPlugins(result.completed_plugins ?? 0);
+        setFailedPlugins(result.failed_plugins ?? 0);
+        setLastError(result.last_error ?? null);
       })
       .catch(() => setStatus(null));
   }, [investigation]);
+
+  const isRunning = running || status === "running";
+
+  useEffect(() => {
+    if (!investigation || !isRunning) return;
+
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const result = await getInvestigationStatus(
+          investigation.investigation_id,
+        );
+
+        if (cancelled) return;
+
+        setStatus(result.status);
+        setProgress(result.progress);
+        setCurrentPlugin(result.current_plugin ?? null);
+        setTotalPlugins(result.total_plugins ?? 0);
+        setCompletedPlugins(result.completed_plugins ?? 0);
+        setFailedPlugins(result.failed_plugins ?? 0);
+        setLastError(result.last_error ?? null);
+      } catch {
+        if (!cancelled) setStatus(null);
+      }
+    };
+
+    poll();
+
+    const timer = window.setInterval(poll, POLLING_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [investigation, isRunning]);
 
   async function handleStart() {
     if (!investigation || running) return;
 
     setRunning(true);
+    setStatus("running");
+    setProgress(0);
     setError(null);
+    setCurrentPlugin(null);
+    setTotalPlugins(0);
+    setCompletedPlugins(0);
+    setFailedPlugins(0);
+    setLastError(null);
 
     try {
       const result = await startInvestigation(
@@ -80,10 +143,16 @@ export default function InvestigationPage() {
 
       setStatus(fresh.status);
       setProgress(fresh.progress);
+      setCurrentPlugin(fresh.current_plugin ?? null);
+      setTotalPlugins(fresh.total_plugins ?? 0);
+      setCompletedPlugins(fresh.completed_plugins ?? 0);
+      setFailedPlugins(fresh.failed_plugins ?? 0);
+      setLastError(fresh.last_error ?? null);
     } catch (err) {
       const detail = getErrorMessage(err);
 
       setError(detail);
+      setStatus("failed");
       toast.error(detail || "Investigation failed to start.");
     } finally {
       setRunning(false);
@@ -111,8 +180,6 @@ export default function InvestigationPage() {
       </div>
     );
   }
-
-  const isRunning = running || status === "running";
 
   return (
     <div className="space-y-8">
@@ -158,9 +225,12 @@ export default function InvestigationPage() {
         </div>
 
         {isRunning && (
-          <div className="mt-6">
-            <div className="mb-2 flex items-center justify-between text-sm text-slate-400">
-              <span>Running Volatility plugins...</span>
+          <div className="mt-6 space-y-3">
+            <div className="flex items-center justify-between text-sm text-slate-400">
+              <span className="inline-flex items-center gap-2">
+                <Loader2 className="animate-spin" size={16} />
+                Running Volatility plugins...
+              </span>
               <span>{progress}%</span>
             </div>
 
@@ -170,6 +240,50 @@ export default function InvestigationPage() {
                 style={{ width: `${progress}%` }}
               />
             </div>
+
+            <div className="grid gap-4 text-sm sm:grid-cols-3">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-500">
+                  Current plugin
+                </p>
+                <p className="mt-1 font-mono text-cyan-400">
+                  {currentPlugin ?? "starting..."}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-500">
+                  Completed
+                </p>
+                <p className="mt-1 text-white">
+                  {totalPlugins > 0
+                    ? `${completedPlugins} / ${totalPlugins} plugins`
+                    : "Starting..."}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-500">
+                  Failed
+                </p>
+                <p
+                  className={`mt-1 ${
+                    failedPlugins > 0 ? "text-red-400" : "text-white"
+                  }`}
+                >
+                  {failedPlugins}
+                </p>
+              </div>
+            </div>
+
+            {failedPlugins > 0 && (
+              <p className="rounded-lg border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-400">
+                <AlertTriangle className="mr-2 inline" size={16} />
+                {failedPlugins} plugin{failedPlugins === 1 ? "" : "s"} failed
+                {lastError ? `: ${lastError}` : "."} Continuing with the
+                remaining plugins.
+              </p>
+            )}
           </div>
         )}
 

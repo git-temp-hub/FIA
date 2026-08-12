@@ -161,6 +161,39 @@ def ensure_evidence_risk_columns(engine: Engine) -> None:
                 )
 
 
+def ensure_current_plugin_column(engine: Engine) -> None:
+    """
+    Backward-compatible schema migration for existing databases.
+
+    Adds the nullable ``memory_dumps.current_plugin`` column used to
+    report which Volatility plugin is currently executing. The column is
+    only added when it is missing, so existing rows are never modified.
+    """
+
+    table_exists = inspect(engine).has_table("memory_dumps")
+
+    if not table_exists:
+        return
+
+    with engine.connect() as connection:
+        columns = {
+            row[1]
+            for row in connection.execute(
+                text("PRAGMA table_info(memory_dumps)")
+            )
+        }
+
+        if "current_plugin" not in columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE memory_dumps "
+                    "ADD COLUMN current_plugin VARCHAR(255)"
+                )
+            )
+            connection.commit()
+            logger.info("Added memory_dumps.current_plugin column.")
+
+
 # ==============================================================================
 # Database Manager
 # ==============================================================================
@@ -201,6 +234,8 @@ class DatabaseManager:
         ensure_chat_session_column(self.engine)
 
         ensure_evidence_risk_columns(self.engine)
+
+        ensure_current_plugin_column(self.engine)
 
         self.verify_connection()
 
