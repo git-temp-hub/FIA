@@ -122,7 +122,7 @@ export default function SettingsPage() {
           <h1 className="text-4xl font-bold text-white">Settings</h1>
 
           <p className="mt-2 text-slate-400">
-            FIA platform information and system configuration.
+            ANVESHAK platform information and system configuration.
           </p>
         </div>
 
@@ -202,9 +202,9 @@ export default function SettingsPage() {
             {/* About */}
             <SettingsCard icon={Info} title="About">
               <p className="text-slate-300">
-                FIA (AI Memory Forensic Investigation Assistant) is a local
-                AI-powered platform for analyzing memory dumps, correlating
-                evidence, and generating investigation reports.
+                ANVESHAK (AI Memory Forensic Investigation Assistant) is a
+                local AI-powered platform for analyzing memory dumps,
+                correlating evidence, and generating investigation reports.
               </p>
 
               <p className="mt-3 text-xs text-slate-500">

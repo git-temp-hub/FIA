@@ -128,6 +128,34 @@ class VectorStore:
         )
     # ------------------------------------------------------------------
 
+    def upsert_documents(
+        self,
+        ids: list[str],
+        documents: list[str],
+        embeddings: list[list[float]],
+        metadatas: list[dict],
+    ) -> None:
+        """
+        Insert or update multiple forensic documents.
+
+        Idempotent by design: re-writing an existing document id replaces the
+        vector instead of raising, so a re-run after an interrupted index
+        cannot create duplicate vectors for the same evidence id.
+        """
+
+        self._collection.upsert(
+            ids=ids,
+            documents=documents,
+            embeddings=embeddings,
+            metadatas=metadatas,
+        )
+
+        logger.info(
+            "Upserted %d documents.",
+            len(ids),
+        )
+    # ------------------------------------------------------------------
+
     def search(
         self,
         embedding: list[float],
@@ -222,6 +250,33 @@ class VectorStore:
             "Deleted document: %s",
             document_id,
         )
+
+    # ------------------------------------------------------------------
+
+    def delete_documents(
+        self,
+        document_ids: list[str],
+    ) -> int:
+        """
+        Delete several documents by id.
+
+        Returns the number of document ids passed in; ChromaDB's delete is
+        idempotent so ids that are already absent are silently skipped.
+        """
+
+        if not document_ids:
+            return 0
+
+        self._collection.delete(
+            ids=document_ids,
+        )
+
+        logger.info(
+            "Deleted %d documents.",
+            len(document_ids),
+        )
+
+        return len(document_ids)
 
     # ------------------------------------------------------------------
 

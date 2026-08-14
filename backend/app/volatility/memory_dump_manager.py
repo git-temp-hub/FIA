@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import hashlib
 import shutil
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Final, Protocol
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -42,6 +43,18 @@ MAX_MEMORY_DUMP_SIZE: Final[int] = 1024 * 1024 * 1024 * 64  # 64 GB
 # ==============================================================================
 # Memory Dump Information
 # ==============================================================================
+
+
+class AsyncReadable(Protocol):
+    """
+    Minimal async read interface accepted by :meth:`MemoryDumpManager.stream_to_storage`.
+
+    FastAPI's ``UploadFile`` satisfies this protocol, so the manager can
+    stream uploads without depending on FastAPI types.
+    """
+
+    async def read(self, size: int = -1) -> bytes:
+        """Return up to ``size`` bytes, or ``b''`` at end of stream."""
 
 
 @dataclass(slots=True)
@@ -253,6 +266,123 @@ class MemoryDumpManager:
 
         return metadata
 
+    # --------------------------------------------------------------------------
+    # Streaming Storage
+    # --------------------------------------------------------------------------
+
+    async def stream_to_storage(
+        self,
+        filename: str | None,
+        stream: AsyncReadable,
+    ) -> MemoryDumpInfo:
+        """
+        Stream an uploaded memory dump into storage with bounded memory.
+
+        Reads ``stream`` in fixed-size chunks (never the full file at once),
+        validating the extension up front and computing the SHA-256 and byte
+        count incrementally while the limits are enforced. The completed file
+        is moved into the storage directory; duplicate filenames are not
+        overwritten, mirroring :meth:`store_memory_dump`.
+
+        Parameters
+        ----------
+        filename : the original upload filename (basename is used).
+        stream : an async reader (e.g. FastAPI ``UploadFile``).
+
+        Returns
+        -------
+        MemoryDumpInfo describing the stored dump.
+
+        Raises
+        ------
+        ValueError
+            If the extension is unsupported, the stream is empty, or the
+            content exceeds ``MAX_MEMORY_DUMP_SIZE``.
+        """
+
+        basename = Path(filename or "").name
+
+        extension = Path(basename).suffix.lower()
+
+        if extension not in SUPPORTED_MEMORY_EXTENSIONS:
+            raise ValueError(
+                f"Unsupported memory dump format: {extension}"
+            )
+
+        destination = self._storage_directory / basename
+
+        sha256 = hashlib.sha256()
+
+        total = 0
+
+        temporary_path: Path | None = None
+
+        source_path: Path | None = None
+
+        try:
+
+            with tempfile.NamedTemporaryFile(
+                delete=False,
+                suffix=extension,
+            ) as temp_file:
+
+                temporary_path = Path(temp_file.name)
+
+                source_path = temporary_path
+
+                while chunk := await stream.read(DEFAULT_CHUNK_SIZE):
+
+                    total += len(chunk)
+
+                    if total > MAX_MEMORY_DUMP_SIZE:
+
+                        raise ValueError(
+                            "Memory dump exceeds the maximum supported size."
+                        )
+
+                    sha256.update(chunk)
+
+                    temp_file.write(chunk)
+
+            if total == 0:
+
+                raise ValueError(
+                    "Memory dump file is empty."
+                )
+
+            if not destination.exists():
+
+                shutil.move(temporary_path, destination)
+
+                temporary_path = None
+
+                logger.info(
+                    "Memory dump stored successfully: %s",
+                    destination,
+                )
+
+            else:
+
+                logger.warning(
+                    "Memory dump already exists: %s",
+                    destination.name,
+                )
+
+            return MemoryDumpInfo(
+                original_path=source_path or destination,
+                stored_path=destination,
+                filename=basename,
+                extension=extension,
+                file_size=total,
+                sha256=sha256.hexdigest(),
+            )
+
+        finally:
+
+            if temporary_path is not None:
+
+                temporary_path.unlink(missing_ok=True)
+
 # ==============================================================================
 # Singleton Instance
 # ==============================================================================
@@ -265,6 +395,7 @@ memory_dump_manager = MemoryDumpManager()
 # ==============================================================================
 
 __all__ = [
+    "AsyncReadable",
     "MemoryDumpInfo",
     "MemoryDumpManager",
     "memory_dump_manager",

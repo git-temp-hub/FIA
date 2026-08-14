@@ -89,6 +89,7 @@ async def chat_query(
             investigation_id=request.investigation_id,
             question=request.question,
             top_k=request.top_k,
+            db=db,
         )
     except RuntimeError as exc:
         logger.exception(

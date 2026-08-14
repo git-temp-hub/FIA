@@ -10,6 +10,7 @@ export interface InvestigationStatus {
   investigation_id: string;
   status: string;
   progress: number;
+  phase?: string | null;
   current_plugin?: string | null;
   total_plugins?: number;
   completed_plugins?: number;

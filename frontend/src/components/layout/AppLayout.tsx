@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ReactNode } from "react";
 
 import Sidebar from "../navigation/Sidebar";
@@ -8,14 +9,19 @@ interface Props {
 }
 
 export default function AppLayout({ children }: Props) {
+  const [mobileOpen, setMobileOpen] = useState(false);
+
   return (
     <div className="h-screen bg-slate-950 flex">
 
-      <Sidebar />
+      <Sidebar
+        mobileOpen={mobileOpen}
+        onClose={() => setMobileOpen(false)}
+      />
 
       <div className="flex-1 flex flex-col overflow-hidden">
 
-        <Header />
+        <Header onMenuClick={() => setMobileOpen(true)} />
 
         <main className="flex-1 overflow-auto bg-slate-950 p-8">
 

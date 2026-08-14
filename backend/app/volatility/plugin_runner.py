@@ -4,17 +4,24 @@ Volatility Plugin Runner for the AI Memory Forensic Investigation Assistant.
 This module executes validated Volatility 3 plugins against
 memory dump files and captures structured execution results.
 
-Author:
-    FIA Development Team
+Plugin stdout/stderr are streamed to temporary files on disk instead of
+being buffered in RAM, so plugins that emit hundreds of megabytes of JSON
+(customary for multi-gigabyte memory dumps) never exceed a bounded memory
+footprint during execution. Successful JSON output is exposed as
+``json_output_path`` and consumed (parsed) from disk by the caller, which
+is then responsible for unlinking it.
 """
 
 from __future__ import annotations
 
+import subprocess
+import tempfile
 from dataclasses import dataclass
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 from typing import Final
 
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.volatility.manager import volatility_manager
 from app.volatility.plugin_registry import plugin_registry
@@ -62,6 +69,8 @@ class PluginExecutionResult:
 
     error_message: str | None
 
+    json_output_path: Path | None = None
+
 # ==============================================================================
 # Plugin Runner
 # ==============================================================================
@@ -75,6 +84,12 @@ class PluginRunner:
     def __init__(self) -> None:
         self._manager = volatility_manager
         self._registry = plugin_registry
+        self._temp_directory = settings.storage.temp
+
+        self._temp_directory.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
         logger.info(
             "Plugin Runner initialized."
@@ -132,10 +147,14 @@ class PluginRunner:
         timeout: int = DEFAULT_EXECUTION_TIMEOUT,
     ) -> PluginExecutionResult:
         """
-        Execute a Volatility plugin and capture its output.
-        """
+        Execute a Volatility plugin, streaming its output to disk.
 
-        import subprocess
+        The subprocess writes stdout/stderr directly into temporary files so
+        multi-hundred-MB JSON output is never held in RAM while Volatility
+        runs. On success the JSON remains on disk (``json_output_path``);
+        on failure the temporary files are removed and the error message is
+        read from the captured stderr file.
+        """
 
         command = self.build_command(
             memory_dump=memory_dump,
@@ -149,21 +168,83 @@ class PluginRunner:
 
         started_at = datetime.now()
 
+        stdout_path: Path | None = None
+        stderr_path: Path | None = None
+
         try:
-            process = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
 
-            finished_at = datetime.now()
+            with (
+                tempfile.NamedTemporaryFile(
+                    "wb",
+                    delete=False,
+                    prefix=f"{plugin_name}-",
+                    suffix=".out",
+                    dir=self._temp_directory,
+                ) as stdout_file,
+                tempfile.NamedTemporaryFile(
+                    "wb",
+                    delete=False,
+                    prefix=f"{plugin_name}-",
+                    suffix=".err",
+                    dir=self._temp_directory,
+                ) as stderr_file,
+            ):
 
-            execution_time = (
-                finished_at - started_at
-            ).total_seconds()
+                stdout_path = Path(stdout_file.name)
+                stderr_path = Path(stderr_file.name)
 
-            success = process.returncode == 0
+                process = subprocess.Popen(
+                    command,
+                    stdout=stdout_file,
+                    stderr=stderr_file,
+                )
+
+                timed_out = False
+
+                try:
+                    process.wait(timeout=timeout)
+
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+                    timed_out = True
+
+                return_code = process.returncode
+
+                finished_at = datetime.now()
+
+                execution_time = (
+                    finished_at - started_at
+                ).total_seconds()
+
+            # Both temp files are closed here, so they can be unlinked.
+
+            if timed_out:
+
+                stderr_text = self._read_output_text(stderr_path)
+
+                self._cleanup_only(stderr_path)
+                self._cleanup_only(stdout_path)
+
+                logger.exception(
+                    "Plugin '%s' timed out.",
+                    plugin_name,
+                )
+
+                return PluginExecutionResult(
+                    plugin_name=plugin_name,
+                    memory_dump=memory_dump,
+                    command=command,
+                    success=False,
+                    return_code=-1,
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    execution_time=execution_time,
+                    stdout="",
+                    stderr=stderr_text,
+                    json_output=None,
+                    error_message="Execution timed out.",
+                )
 
             logger.info(
                 "Plugin '%s' finished in %.2f seconds.",
@@ -171,28 +252,56 @@ class PluginRunner:
                 execution_time,
             )
 
+            if return_code == 0:
+
+                self._cleanup_only(stderr_path)
+
+                return PluginExecutionResult(
+                    plugin_name=plugin_name,
+                    memory_dump=memory_dump,
+                    command=command,
+                    success=True,
+                    return_code=return_code,
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    execution_time=execution_time,
+                    stdout="",
+                    stderr="",
+                    json_output=None,
+                    json_output_path=stdout_path,
+                    error_message=None,
+                )
+
+            stderr_text = self._read_output_text(stderr_path)
+
+            self._cleanup_only(stderr_path)
+            self._cleanup_only(stdout_path)
+
             return PluginExecutionResult(
                 plugin_name=plugin_name,
                 memory_dump=memory_dump,
                 command=command,
-                success=success,
-                return_code=process.returncode,
+                success=False,
+                return_code=return_code,
                 started_at=started_at,
                 finished_at=finished_at,
                 execution_time=execution_time,
-                stdout=process.stdout,
-                stderr=process.stderr,
-                json_output=process.stdout if success else None,
-                error_message=None if success else process.stderr,
+                stdout="",
+                stderr=stderr_text,
+                json_output=None,
+                error_message=stderr_text,
             )
 
-        except subprocess.TimeoutExpired:
-            finished_at = datetime.now()
-
+        except Exception as exc:
             logger.exception(
-                "Plugin '%s' timed out.",
+                "Plugin '%s' execution failed.",
                 plugin_name,
             )
+
+            self._cleanup_only(stderr_path)
+            self._cleanup_only(stdout_path)
+
+            finished_at = datetime.now()
 
             return PluginExecutionResult(
                 plugin_name=plugin_name,
@@ -206,10 +315,45 @@ class PluginRunner:
                     finished_at - started_at
                 ).total_seconds(),
                 stdout="",
-                stderr="Execution timed out.",
+                stderr=str(exc),
                 json_output=None,
-                error_message="Execution timed out.",
+                error_message=str(exc),
             )
+
+    # --------------------------------------------------------------------------
+    # Helpers
+    # --------------------------------------------------------------------------
+
+    @staticmethod
+    def _read_output_text(
+        path: Path | None,
+        limit: int = 100_000,
+    ) -> str:
+        """Read back at most ``limit`` chars of a streamed temp output."""
+
+        if path is None or not path.exists():
+            return ""
+
+        try:
+            text = path.read_text(
+                encoding="utf-8",
+                errors="replace",
+            )
+        except OSError:
+            return ""
+
+        if len(text) > limit:
+            text = text[:limit]
+
+        return text
+
+    @staticmethod
+    def _cleanup_only(path: Path | None) -> None:
+        """Remove a temp output file, ignoring errors."""
+
+        if path is not None:
+            path.unlink(missing_ok=True)
+
 # ==============================================================================
 # Singleton Instance
 # ==============================================================================

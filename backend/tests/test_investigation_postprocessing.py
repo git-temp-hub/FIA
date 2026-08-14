@@ -60,6 +60,7 @@ class _RecordingVectorStore:
 
     def __init__(self) -> None:
         self.added: list[dict] = []
+        self.deleted: list[str] = []
         self.delete_calls: int = 0
 
     def delete_by_metadata(self, where: dict) -> int:
@@ -81,6 +82,24 @@ class _RecordingVectorStore:
                 "metadatas": list(metadatas),
             }
         )
+
+    def upsert_documents(
+        self,
+        ids: list[str],
+        documents: list[str],
+        embeddings: list[list[float]],
+        metadatas: list[dict],
+    ) -> None:
+        self.add_documents(
+            ids,
+            documents,
+            embeddings,
+            metadatas,
+        )
+
+    def delete_documents(self, document_ids: list[str]) -> int:
+        self.deleted.extend(document_ids)
+        return len(document_ids)
 
 
 _EMBEDDING_STUB = types.ModuleType(
@@ -119,6 +138,11 @@ from app.services.rag.indexing_service import (  # noqa: E402
 from app.services.risk_classification_service import (  # noqa: E402
     CLASSIFICATION_COMMIT_BATCH,
     classify_investigation_evidence,
+)
+from app.services.investigation_phase_tracker import (  # noqa: E402
+    PHASE_COMPLETED,
+    PHASE_INDEXING,
+    investigation_phase_tracker,
 )
 
 # ChromaDB rejects a single batch larger than 5461 documents.
@@ -253,9 +277,12 @@ def test_index_investigation_single_batch_within_limit(session):
     result = service.index_investigation(investigation_id, session)
 
     assert result["indexed"] == 3
+    assert result["removed"] == 0
     assert len(vector_store.added) == 1
     assert len(vector_store.added[0]["ids"]) == 3
-    assert vector_store.delete_calls == 1
+    # Incremental indexing never wipes the investigation's existing vectors.
+    assert vector_store.delete_calls == 0
+    assert vector_store.deleted == []
 
 
 # ==============================================================================
@@ -373,8 +400,39 @@ def test_background_indexing_failure_is_logged_not_raised(monkeypatch):
         broken_index,
     )
 
-    # Must return None without raising.
+    # Must return None without raising. The indexing phase is still reported.
     assert (
         _run_evidence_indexing("INV-X", session_factory=lambda: None)
         is None
     )
+    assert investigation_phase_tracker.get("INV-X") == PHASE_INDEXING
+    investigation_phase_tracker.clear("INV-X")
+
+
+def test_background_tasks_report_phase_transitions(session_factory):
+    """Indexing then classification must expose their phases to status."""
+
+    investigation_id = _seed_evidence_rows(
+        session_factory(),
+        "INV-BG-PHASE",
+        25,
+    )
+
+    tasks = BackgroundTasks()
+    tasks.add_task(
+        _run_evidence_indexing,
+        investigation_id,
+        session_factory,
+    )
+    tasks.add_task(
+        _run_risk_classification,
+        investigation_id,
+        session_factory,
+    )
+    asyncio.run(tasks())
+
+    # After both post-processing passes finish the phase is completed.
+    assert investigation_phase_tracker.get(investigation_id) == (
+        PHASE_COMPLETED
+    )
+    investigation_phase_tracker.clear(investigation_id)

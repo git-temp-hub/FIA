@@ -17,13 +17,17 @@ Responsibilities
 
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 from typing import Any, Callable
 
 from app.core.logging import get_logger
 from app.volatility.execution_engine import ExecutionResult, execution_engine
-from app.volatility.memory_dump_manager import memory_dump_manager
+from app.volatility.memory_dump_manager import (
+    AsyncReadable,
+    memory_dump_manager,
+)
 
 logger = get_logger(__name__)
 
@@ -69,6 +73,34 @@ class InvestigationService:
 
         return memory_dump_manager.store_memory_dump(
             memory_dump
+        )
+
+    async def prepare_memory_dump_stream(
+        self,
+        filename: str | None,
+        stream: AsyncReadable,
+    ):
+        """
+        Stream an uploaded memory dump into storage with bounded memory.
+
+        Parameters
+        ----------
+        filename : the original upload filename.
+        stream : an async reader (e.g. FastAPI ``UploadFile``).
+
+        Returns
+        -------
+        MemoryDumpInfo
+        """
+
+        logger.info(
+            "Streaming memory dump: %s",
+            filename,
+        )
+
+        return await memory_dump_manager.stream_to_storage(
+            filename=filename,
+            stream=stream,
         )
 
     # ------------------------------------------------------------------
@@ -229,6 +261,136 @@ class InvestigationService:
         )
 
         return results
+
+    # ------------------------------------------------------------------
+    # Parallel Investigation Run
+    # ------------------------------------------------------------------
+
+    async def run_investigation_async(
+        self,
+        memory_dump: Path,
+        plugins: list[str],
+        on_plugin_started: Callable[[str], None] | None = None,
+        on_plugin_completed: (
+            Callable[[int, int, ExecutionResult, float], None] | None
+        ) = None,
+        max_concurrency: int = 4,
+    ) -> list[ExecutionResult]:
+        """
+        Execute an investigation across the provided plugins concurrently.
+
+        Each plugin's blocking ``subprocess`` work runs on a thread via
+        ``asyncio.to_thread`` (never on the event loop), limited to
+        ``max_concurrency`` in-flight plugins. The callbacks are invoked on
+        the event loop, so database persistence stays single-threaded and
+        thread-safe. Callback ``index`` counts completed plugins, keeping
+        progress monotonic regardless of completion order.
+
+        Individual plugin failures are captured in their ExecutionResult
+        and never terminate the investigation.
+
+        Parameters
+        ----------
+        memory_dump : Path
+
+        plugins : list[str]
+
+        on_plugin_started : Callable, optional
+
+        on_plugin_completed : Callable, optional
+
+        max_concurrency : int, optional
+            Maximum number of plugins executed simultaneously.
+
+        Returns
+        -------
+        list[ExecutionResult]
+            One result per plugin, in the same order as ``plugins``.
+        """
+
+        total = len(plugins)
+
+        logger.info(
+            "Starting parallel investigation on %s with %d plugins "
+            "(max concurrency %d).",
+            memory_dump,
+            total,
+            max_concurrency,
+        )
+
+        if total == 0:
+            return []
+
+        results: list[ExecutionResult | None] = [None] * total
+
+        semaphore = asyncio.Semaphore(
+            max(1, int(max_concurrency))
+        )
+
+        completed_counter = 0
+
+        async def run_one(
+            plugin_name: str,
+            position: int,
+        ) -> None:
+            nonlocal completed_counter
+
+            async with semaphore:
+
+                if on_plugin_started is not None:
+                    on_plugin_started(plugin_name)
+
+                started_at = time.monotonic()
+
+                try:
+                    result = await asyncio.to_thread(
+                        self.execute_plugin,
+                        memory_dump=memory_dump,
+                        plugin_name=plugin_name,
+                    )
+                except Exception as exc:
+                    logger.exception(
+                        "Plugin '%s' raised during parallel execution.",
+                        plugin_name,
+                    )
+                    result = ExecutionResult(
+                        plugin=plugin_name,
+                        success=False,
+                        return_code=-1,
+                        stdout="",
+                        stderr=str(exc),
+                        json_output=None,
+                    )
+
+                execution_time = time.monotonic() - started_at
+
+                results[position] = result
+
+                index = completed_counter
+                completed_counter += 1
+
+                if on_plugin_completed is not None:
+                    on_plugin_completed(
+                        index,
+                        total,
+                        result,
+                        execution_time,
+                    )
+
+        await asyncio.gather(
+            *(
+                run_one(plugin_name, position)
+                for position, plugin_name in enumerate(plugins)
+            )
+        )
+
+        logger.info(
+            "Parallel investigation on %s completed with %d plugin results.",
+            memory_dump,
+            len(results),
+        )
+
+        return [result for result in results if result is not None]
 
     # ------------------------------------------------------------------
     # Complete Investigation Workflow

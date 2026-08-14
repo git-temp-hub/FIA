@@ -5,6 +5,7 @@ import DashboardGrid from "../../components/dashboard/DashboardGrid";
 import RecentInvestigations from "../../components/dashboard/RecentInvestigations";
 import SystemStatus from "../../components/dashboard/SystemStatus";
 import QuickActions from "../../components/dashboard/QuickActions";
+import ThemeToggle from "../../components/ui/ThemeToggle";
 
 import InvestigationChart from "../../components/charts/InvestigationChart";
 import EvidencePieChart from "../../components/charts/EvidencePieChart";
@@ -53,6 +54,8 @@ export default function DashboardPage() {
         </div>
 
         <div className="flex items-center gap-4">
+          <ThemeToggle />
+
           {stats && (
             <span
               className={`rounded-full px-5 py-2 ${

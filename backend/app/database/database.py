@@ -195,6 +195,79 @@ def ensure_current_plugin_column(engine: Engine) -> None:
 
 
 # ==============================================================================
+# Retrieval Acceleration Indexes
+# ==============================================================================
+
+# (suffix, JSON path, lower-cased) triplets for the guarded JSON expression
+# indexes. Each expression mirrors the exact ``CASE WHEN json_valid(...) THEN
+# json_extract(...) END`` text the retrieval service emits so SQLite can serve
+# the exact entity lookups (PID / TID / process name) with index seeks.
+_JSON_EXPRESSION_INDEXES: tuple[tuple[str, str, bool], ...] = (
+    ("pid", "$.pid", False),
+    ("processid", "$.processid", False),
+    ("tid", "$.tid", False),
+    ("threadid", "$.threadid", False),
+    ("thread", "$.thread", False),
+    ("handlevalue", "$.handlevalue", False),
+    ("type", "$.type", True),
+    ("imagefilename", "$.imagefilename", True),
+    ("process", "$.process", True),
+    ("owner", "$.owner", True),
+    ("name", "$.name", True),
+)
+
+
+def _retrieval_index_ddl() -> list[str]:
+    """Render the idempotent CREATE INDEX statements for plugin_results."""
+
+    statements = [
+        "CREATE INDEX IF NOT EXISTS ix_plugin_results_artifact_type "
+        "ON plugin_results (artifact_type)"
+    ]
+
+    for suffix, path, lower in _JSON_EXPRESSION_INDEXES:
+        expression = (
+            "CAST(CASE WHEN json_valid(artifact_value) "
+            f"THEN json_extract(artifact_value, '{path}') END AS TEXT)"
+        )
+        if lower:
+            expression = f"lower({expression})"
+
+        statements.append(
+            "CREATE INDEX IF NOT EXISTS "
+            f"ix_plugin_results_json_{suffix} "
+            f"ON plugin_results ({expression})"
+        )
+
+    return statements
+
+
+def ensure_retrieval_indexes(engine: Engine) -> None:
+    """
+    Create the retrieval acceleration indexes for ``plugin_results``.
+
+    Indexes are created as raw DDL (never ORM metadata) so existing databases
+    are upgraded in place and ``Base.metadata.create_all`` cannot conflict.
+    The guarded ``json_valid`` wrapper keeps index maintenance safe for the
+    free-text artifact rows that exist in real dumps.
+    """
+
+    if not inspect(engine).has_table("plugin_results"):
+        return
+
+    statements = _retrieval_index_ddl()
+
+    with engine.connect() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+        connection.commit()
+        logger.info(
+            "Ensured %d retrieval acceleration indexes on plugin_results.",
+            len(statements),
+        )
+
+
+# ==============================================================================
 # Database Manager
 # ==============================================================================
 
@@ -236,6 +309,8 @@ class DatabaseManager:
         ensure_evidence_risk_columns(self.engine)
 
         ensure_current_plugin_column(self.engine)
+
+        ensure_retrieval_indexes(self.engine)
 
         self.verify_connection()
 

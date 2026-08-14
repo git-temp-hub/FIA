@@ -173,6 +173,21 @@ class ToolSettings(BaseModel):
 
     yara: bool = False
 
+
+class RAGSettings(BaseModel):
+    """
+    Retrieval-Augmented Generation configuration.
+
+    ``index_batch_size`` bounds how many evidence rows are read, embedded,
+    and written per index page; ``embed_batch_size`` bounds how many documents
+    are passed to the embedding model per encode call. Both keep memory
+    bounded on large investigations.
+    """
+
+    index_batch_size: int = Field(1000, ge=1, le=5461)
+
+    embed_batch_size: int = Field(64, ge=1)
+
 # ==============================================================================
 # Root Settings
 # ==============================================================================
@@ -206,6 +221,8 @@ class Settings(BaseSettings):
     features: FeatureSettings = FeatureSettings()
 
     tools: ToolSettings = ToolSettings()
+
+    rag: RAGSettings = RAGSettings()
 
     model_config = SettingsConfigDict(
         extra="ignore",
@@ -313,9 +330,36 @@ def environment_overrides() -> dict[str, Any]:
         "reporting": {
 
             "output_directory": os.getenv("REPORT_DIRECTORY"),
-        }
+        },
+
+        "rag": _rag_environment_overrides(),
 
     }
+
+
+def _rag_environment_overrides() -> dict[str, int]:
+    """
+    Build RAG environment overrides, including only values that are set.
+
+    ``deep_merge`` copies whole sections wholesale when the section is absent
+    from config.yaml, so absent values must not appear as ``None`` here.
+    """
+
+    import os
+
+    overrides: dict[str, int] = {}
+
+    if os.getenv("RAG_INDEX_BATCH_SIZE"):
+        overrides["index_batch_size"] = int(
+            os.getenv("RAG_INDEX_BATCH_SIZE")
+        )
+
+    if os.getenv("RAG_EMBED_BATCH_SIZE"):
+        overrides["embed_batch_size"] = int(
+            os.getenv("RAG_EMBED_BATCH_SIZE")
+        )
+
+    return overrides
 
 # ==============================================================================
 # Dictionary Merge Utilities
@@ -597,6 +641,7 @@ __all__ = [
     "StorageSettings",
     "FeatureSettings",
     "ToolSettings",
+    "RAGSettings",
     "PROJECT_ROOT",
     "BACKEND_DIR",
     "APP_DIR",

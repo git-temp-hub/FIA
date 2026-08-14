@@ -112,6 +112,70 @@ class PluginResultRepository(BaseRepository[PluginResult]):
             self.session.scalars(statement).all()
         )
 
+    def stream_batch_by_investigation(
+        self,
+        investigation_id: str,
+        after_id: int,
+        limit: int,
+    ) -> list[tuple]:
+        """
+        Return the next page of evidence for an investigation.
+
+        Keyset pagination over the primary key keeps memory bounded for large
+        investigations: only ``limit`` rows (and never the ORM identity map)
+        are materialized. The plugin name is resolved in the same query so no
+        per-row lazy load is issued.
+
+        Parameters
+        ----------
+        investigation_id : str
+
+        after_id : int
+            Only rows with ``id`` strictly greater than this value are
+            returned (start with 0).
+
+        limit : int
+
+        Returns
+        -------
+        list[tuple]
+            Rows with ``id``, ``artifact_type``, ``artifact_name``,
+            ``artifact_value``, ``confidence_score``, and ``plugin_name``.
+        """
+
+        statement = (
+            select(
+                PluginResult.id,
+                PluginResult.artifact_type,
+                PluginResult.artifact_name,
+                PluginResult.artifact_value,
+                PluginResult.confidence_score,
+                PluginExecution.plugin_name,
+            )
+            .join(
+                PluginExecution,
+                PluginResult.plugin_execution_id == PluginExecution.id,
+            )
+            .join(
+                MemoryDump,
+                PluginExecution.memory_dump_id == MemoryDump.id,
+            )
+            .where(
+                MemoryDump.investigation_id == investigation_id
+            )
+            .where(
+                PluginResult.id > after_id
+            )
+            .order_by(
+                PluginResult.id.asc()
+            )
+            .limit(limit)
+        )
+
+        return list(
+            self.session.execute(statement).all()
+        )
+
     # ------------------------------------------------------------------
     # Statistics
     # ------------------------------------------------------------------
@@ -131,6 +195,41 @@ class PluginResultRepository(BaseRepository[PluginResult]):
             .select_from(PluginResult)
             .where(
                 PluginResult.plugin_execution_id == execution_id
+            )
+        )
+
+        return (
+            self.session.scalar(statement)
+            or 0
+        )
+
+    def count_by_investigation(
+        self,
+        investigation_id: str,
+    ) -> int:
+        """
+        Return the number of evidence records for an investigation.
+
+        This is the authoritative proof that forensic evidence exists even
+        when the vector store is empty: zero Chroma vectors must never be
+        interpreted as zero evidence.
+        """
+
+        statement = (
+            select(
+                func.count()
+            )
+            .select_from(PluginResult)
+            .join(
+                PluginExecution,
+                PluginResult.plugin_execution_id == PluginExecution.id,
+            )
+            .join(
+                MemoryDump,
+                PluginExecution.memory_dump_id == MemoryDump.id,
+            )
+            .where(
+                MemoryDump.investigation_id == investigation_id
             )
         )
 

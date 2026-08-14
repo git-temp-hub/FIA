@@ -35,6 +35,14 @@ from app.services.risk_classification_service import (
     classify_investigation_evidence,
 )
 
+from app.services.investigation_phase_tracker import (
+    PHASE_CLASSIFYING,
+    PHASE_COMPLETED,
+    PHASE_INDEXING,
+    PHASE_VOLATILITY,
+    investigation_phase_tracker,
+)
+
 logger = get_logger(__name__)
 
 router = APIRouter(
@@ -99,6 +107,11 @@ def _run_evidence_indexing(
     response. Failures are logged and swallowed on purpose.
     """
 
+    investigation_phase_tracker.set(
+        investigation_id,
+        PHASE_INDEXING,
+    )
+
     try:
 
         from app.services.rag.indexing_service import (
@@ -133,6 +146,11 @@ def _run_risk_classification(
     Failures are logged and swallowed on purpose.
     """
 
+    investigation_phase_tracker.set(
+        investigation_id,
+        PHASE_CLASSIFYING,
+    )
+
     try:
 
         with session_factory() as db:
@@ -147,6 +165,11 @@ def _run_risk_classification(
             exc,
         )
 
+    investigation_phase_tracker.set(
+        investigation_id,
+        PHASE_COMPLETED,
+    )
+
 
 @router.post(
     "/start",
@@ -160,6 +183,11 @@ async def start_investigation(
 
     from app.services.investigation_service import (
         investigation_service,
+    )
+
+    investigation_phase_tracker.set(
+        request.investigation_id,
+        PHASE_VOLATILITY,
     )
 
     memory_dump_repository = MemoryDumpRepository(db)
@@ -247,14 +275,27 @@ async def start_investigation(
 
             plugin_execution_repository.update(execution)
 
-            if result.success and result.json_output:
+            if result.success and (
+                result.json_output or result.json_output_path
+            ):
+
+                output_path = result.json_output_path
 
                 try:
 
-                    parsed = volatility_json_parser.parse(
-                        result.plugin,
-                        result.json_output,
-                    )
+                    if output_path is not None:
+
+                        parsed = volatility_json_parser.parse_file(
+                            result.plugin,
+                            output_path,
+                        )
+
+                    else:
+
+                        parsed = volatility_json_parser.parse(
+                            result.plugin,
+                            result.json_output,
+                        )
 
                     records = evidence_normalizer.normalize(
                         result.plugin,
@@ -283,6 +324,11 @@ async def start_investigation(
                         exc,
                     )
 
+                finally:
+
+                    if output_path is not None:
+                        output_path.unlink(missing_ok=True)
+
         else:
 
             logger.error(
@@ -309,7 +355,7 @@ async def start_investigation(
 
     try:
 
-        investigation_service.run_investigation(
+        await investigation_service.run_investigation_async(
             memory_dump=memory_dump_path,
             plugins=DEFAULT_PLUGINS,
             on_plugin_started=on_plugin_started,
@@ -399,10 +445,26 @@ async def investigation_status(
         and execution.error_message
     ]
 
+    tracked_phase = investigation_phase_tracker.get(investigation_id)
+
+    if tracked_phase in (
+        PHASE_INDEXING,
+        PHASE_CLASSIFYING,
+        PHASE_COMPLETED,
+    ):
+        phase = tracked_phase
+    elif record.status == "running":
+        phase = PHASE_VOLATILITY
+    elif record.status == "completed":
+        phase = PHASE_COMPLETED
+    else:
+        phase = None
+
     return InvestigationStatusResponse(
         investigation_id=investigation_id,
         status=record.status,
         progress=record.progress,
+        phase=phase,
         current_plugin=record.current_plugin,
         total_plugins=len(executions),
         completed_plugins=completed_plugins,

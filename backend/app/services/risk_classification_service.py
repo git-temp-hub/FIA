@@ -20,6 +20,10 @@ from sqlalchemy.orm import Session
 from app.core.logging import get_logger
 from app.database.repositories import PluginResultRepository
 from app.services.evidence_classifier import evidence_classifier
+from app.services.evidence_classifier.correlation import (
+    build_corpus,
+    build_corpus_index,
+)
 from app.services.evidence_classifier.scorer import RULE_VERSION
 
 logger = get_logger(__name__)
@@ -44,47 +48,61 @@ def classify_investigation_evidence(
 
     records = repository.get_by_investigation(investigation_id)
 
-    corpus = [
-        {
-            "id": record.id,
-            "plugin": record.artifact_name,
-            "artifact_type": record.artifact_type,
-            "artifact_value": record.artifact_value,
-        }
+    unclassified = [
+        record
         for record in records
+        if record.risk_level is None
     ]
 
     updated = 0
 
-    for record in records:
+    if unclassified:
 
-        if record.risk_level is not None:
-            continue
+        # The correlation index is built ONCE over the whole investigation
+        # (including already-classified records, matching previous behaviour)
+        # so cross-plugin corroboration still sees the complete evidence set.
+        # Inside ``classify`` each record then only visits candidate evidence
+        # from *other* artifact families sharing one of its entities, instead
+        # of re-parsing and re-scanning the full corpus per record.
+        corpus = [
+            {
+                "id": record.id,
+                "plugin": record.artifact_name,
+                "artifact_type": record.artifact_type,
+                "artifact_value": record.artifact_value,
+            }
+            for record in records
+        ]
 
-        classification = evidence_classifier.classify(
-            plugin=record.artifact_name,
-            artifact_type=record.artifact_type,
-            artifact_value=record.artifact_value,
-            corpus=corpus,
-            evidence_id=record.id,
-        )
+        entries = build_corpus(corpus)
+        index = build_corpus_index(entries)
 
-        record.risk_level = classification.severity
-        record.risk_reasons = json.dumps(classification.reasons)
-        record.risk_indicators = json.dumps(classification.indicators)
-        record.rule_version = RULE_VERSION
+        for record in unclassified:
 
-        updated += 1
-
-        if updated % CLASSIFICATION_COMMIT_BATCH == 0:
-
-            session.commit()
-
-            logger.info(
-                "Classified %d evidence records for investigation '%s'.",
-                updated,
-                investigation_id,
+            classification = evidence_classifier.classify(
+                plugin=record.artifact_name,
+                artifact_type=record.artifact_type,
+                artifact_value=record.artifact_value,
+                corpus=index,
+                evidence_id=record.id,
             )
+
+            record.risk_level = classification.severity
+            record.risk_reasons = json.dumps(classification.reasons)
+            record.risk_indicators = json.dumps(classification.indicators)
+            record.rule_version = RULE_VERSION
+
+            updated += 1
+
+            if updated % CLASSIFICATION_COMMIT_BATCH == 0:
+
+                session.commit()
+
+                logger.info(
+                    "Classified %d evidence records for investigation '%s'.",
+                    updated,
+                    investigation_id,
+                )
 
     session.commit()
 

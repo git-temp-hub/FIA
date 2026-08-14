@@ -51,6 +51,8 @@ class ExecutionResult:
 
     json_output: Any | None = None
 
+    json_output_path: Path | None = None
+
 
 # ==============================================================================
 # Volatility Execution Engine
@@ -111,6 +113,7 @@ class VolatilityExecutionEngine:
             stdout=result.stdout,
             stderr=result.stderr,
             json_output=result.json_output,
+            json_output_path=result.json_output_path,
         )
     # --------------------------------------------------------------------------
     # Batch Execution

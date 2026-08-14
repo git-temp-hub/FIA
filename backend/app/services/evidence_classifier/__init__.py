@@ -8,8 +8,14 @@ cross-plugin correlation, independent of the stored confidence score.
 from app.services.evidence_classifier.classifier import Classification
 from app.services.evidence_classifier.classifier import EvidenceClassifier
 from app.services.evidence_classifier.classifier import evidence_classifier
-from app.services.evidence_classifier.correlation import build_corpus
-from app.services.evidence_classifier.correlation import parse_attributes
+from app.services.evidence_classifier.correlation import (
+    CorpusEntry,
+    CorpusIndex,
+    build_corpus,
+    build_corpus_index,
+    correlate_indexed,
+    parse_attributes,
+)
 from app.services.evidence_classifier.scorer import (
     HIGH,
     INSUFFICIENT_EVIDENCE,
@@ -23,7 +29,11 @@ __all__ = [
     "Classification",
     "EvidenceClassifier",
     "evidence_classifier",
+    "CorpusEntry",
+    "CorpusIndex",
     "build_corpus",
+    "build_corpus_index",
+    "correlate_indexed",
     "parse_attributes",
     "LOW",
     "MEDIUM",

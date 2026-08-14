@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from app.core.logging import get_logger
@@ -134,6 +135,34 @@ class VolatilityJSONParser:
         )
 
         return parsed
+
+    def parse_file(
+        self,
+        plugin_name: str,
+        output_path: Path,
+    ) -> ParsedPluginOutput:
+        """
+        Parse and validate Volatility JSON output from a file on disk.
+
+        Reads the streamed plugin output (see ``PluginRunner``) once and
+        parses it, so the JSON text is only loaded into memory for the
+        duration of the parse rather than retained for the whole execution.
+        """
+
+        if not output_path.exists():
+            raise ValueError(
+                f"Volatility output file not found: {output_path}"
+            )
+
+        raw_json = output_path.read_text(
+            encoding="utf-8",
+            errors="replace",
+        )
+
+        return self.parse(
+            plugin_name=plugin_name,
+            raw_json=raw_json,
+        )
 # ==============================================================================
 # Singleton Instance
 # ==============================================================================

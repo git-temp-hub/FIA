@@ -1,5 +1,66 @@
 @import "tailwindcss";
 
+:root,
+[data-theme="light"] {
+  --bg-deep: #eef2f7;
+  --surface-100: #0f172a;
+  --surface-200: #1e293b;
+  --surface-300: #334155;
+  --surface-400: #475569;
+  --surface-500: #64748b;
+  --surface-600: #94a3b8;
+  --surface-700: #cbd5e1;
+  --surface-800: #e2e8f0;
+  --surface-900: #ffffff;
+  --fg: #0f172a;
+
+  --accent-cyan: #0891b2;
+  --accent-green: #16a34a;
+  --accent-red: #dc2626;
+  --accent-yellow: #ca8a04;
+  --accent-purple: #9333ea;
+}
+
+[data-theme="dark"] {
+  --bg-deep: #0b1220;
+  --surface-100: #f1f5f9;
+  --surface-200: #e2e8f0;
+  --surface-300: #cbd5e1;
+  --surface-400: #94a3b8;
+  --surface-500: #64748b;
+  --surface-600: #475569;
+  --surface-700: #334155;
+  --surface-800: #1e293b;
+  --surface-900: #0f172a;
+  --fg: #ffffff;
+
+  --accent-cyan: #22d3ee;
+  --accent-green: #4ade80;
+  --accent-red: #f87171;
+  --accent-yellow: #facc15;
+  --accent-purple: #c084fc;
+}
+
+@theme {
+  --color-slate-950: var(--bg-deep);
+  --color-slate-900: var(--surface-900);
+  --color-slate-800: var(--surface-800);
+  --color-slate-700: var(--surface-700);
+  --color-slate-600: var(--surface-600);
+  --color-slate-500: var(--surface-500);
+  --color-slate-400: var(--surface-400);
+  --color-slate-300: var(--surface-300);
+  --color-slate-200: var(--surface-200);
+  --color-slate-100: var(--surface-100);
+  --color-white: var(--fg);
+
+  --color-cyan-400: var(--accent-cyan);
+  --color-green-400: var(--accent-green);
+  --color-red-400: var(--accent-red);
+  --color-yellow-400: var(--accent-yellow);
+  --color-purple-400: var(--accent-purple);
+}
+
 html,
 body,
 #root {
@@ -10,7 +71,8 @@ body,
 body {
   margin: 0;
   font-family: Inter, system-ui, sans-serif;
-  background: #0b1220;
+  background: var(--bg-deep);
+  color: var(--fg);
 }
 
 @keyframes toast-dismiss {

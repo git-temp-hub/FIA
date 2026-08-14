@@ -25,11 +25,15 @@ from dataclasses import field
 from typing import Any
 
 from app.core.logging import get_logger
-from app.services.evidence_classifier.correlation import CorrelationResult
-from app.services.evidence_classifier.correlation import build_corpus
-from app.services.evidence_classifier.correlation import build_entry
-from app.services.evidence_classifier.correlation import correlate
-from app.services.evidence_classifier.correlation import parse_attributes
+from app.services.evidence_classifier.correlation import (
+    CorpusIndex,
+    CorrelationResult,
+    build_corpus,
+    build_corpus_index,
+    build_entry,
+    correlate_indexed,
+    parse_attributes,
+)
 from app.services.evidence_classifier.indicators import indicators_for
 from app.services.evidence_classifier.indicators import is_supported
 from app.services.evidence_classifier.scorer import HIGH
@@ -90,7 +94,7 @@ class EvidenceClassifier:
         plugin: str,
         artifact_type: str,
         artifact_value: str | None,
-        corpus: list[dict[str, Any]] | None = None,
+        corpus: list[dict[str, Any]] | CorpusIndex | None = None,
         evidence_id: int | None = None,
     ) -> Classification:
         """
@@ -101,9 +105,12 @@ class EvidenceClassifier:
         plugin : the Volatility plugin name (e.g. ``windows.pslist``).
         artifact_type : normalized artifact type (e.g. ``pslist``).
         artifact_value : JSON blob of normalized attributes.
-        corpus : optional list of raw records ``{"id", "plugin",
-            "artifact_type", "artifact_value"}`` used for cross-plugin
-            correlation within the investigation.
+        corpus : optional raw record list ``[{"id", "plugin",
+            "artifact_type", "artifact_value"}]`` OR a prebuilt
+            :class:`~app.services.evidence_classifier.correlation.CorpusIndex`
+            used for cross-plugin correlation within the investigation. A
+            prebuilt index is recomputed only once per investigation instead
+            of once per record.
         evidence_id : the id of the record being classified (excludes itself
             from correlation).
 
@@ -156,9 +163,16 @@ class EvidenceClassifier:
         )
 
         if corpus and entry is not None:
-            correlation = correlate(
+
+            if isinstance(corpus, CorpusIndex):
+                index = corpus
+            else:
+                entries = build_corpus(corpus)
+                index = build_corpus_index(entries)
+
+            correlation = correlate_indexed(
                 entry=entry,
-                corpus=build_corpus(corpus),
+                index=index,
                 min_families=min_corroborating_families(artifact_type),
             )
             corroborated = correlation.corroborated

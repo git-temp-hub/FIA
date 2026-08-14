@@ -94,8 +94,6 @@ sys.modules["app.services.rag.vector_store"].VectorStore = (  # type: ignore[att
 from app.api.routes.investigation import (  # noqa: E402
     DEFAULT_PLUGINS,
     compute_progress,
-)
-from app.api.routes.investigation import (  # noqa: E402
     router as investigation_router,
 )
 from app.database.database import get_db  # noqa: E402
@@ -106,6 +104,13 @@ from app.database.repositories import (  # noqa: E402
 from app.models.case import Case  # noqa: E402
 from app.models.memory_dump import MemoryDump  # noqa: E402
 from app.models.plugin_execution import PluginExecution  # noqa: E402
+from app.services.investigation_phase_tracker import (  # noqa: E402
+    PHASE_CLASSIFYING,
+    PHASE_COMPLETED,
+    PHASE_INDEXING,
+    PHASE_VOLATILITY,
+    investigation_phase_tracker,
+)
 
 
 # ==============================================================================
@@ -132,6 +137,7 @@ class _FakeResult:
         self.success = success
         self.stderr = stderr
         self.json_output = None
+        self.json_output_path = None
 
 
 class _FakeInvestigationService:
@@ -203,9 +209,29 @@ class _FakeInvestigationService:
                 on_plugin_completed(index, total, result, 0.01)
 
             results.append(result)
+
             self.snapshots.append(self._read_snapshot())
 
         return results
+
+    async def run_investigation_async(
+        self,
+        memory_dump: Path,
+        plugins: list[str],
+        on_plugin_started=None,
+        on_plugin_completed=None,
+    ):
+        """
+        Async entry point used by the investigation route since Phase 3.
+        Delegates to the synchronous fake so the recorded callback sequence
+        and snapshots are identical.
+        """
+        return self.run_investigation(
+            memory_dump,
+            plugins,
+            on_plugin_started,
+            on_plugin_completed,
+        )
 
 
 _INVESTIGATION_SERVICE_STUB = types.ModuleType(
@@ -442,6 +468,7 @@ def test_status_reports_zero_progress_for_new_investigation(
 
     assert payload["status"] == "running"
     assert payload["progress"] == 0
+    assert payload["phase"] == PHASE_VOLATILITY
     assert payload["current_plugin"] is None
     assert payload["total_plugins"] == 0
     assert payload["completed_plugins"] == 0
@@ -478,11 +505,57 @@ def test_status_reports_running_progress_and_plugin_counts(
 
     assert payload["status"] == "running"
     assert payload["progress"] == 30
+    assert payload["phase"] == PHASE_VOLATILITY
     assert payload["current_plugin"] == "windows.pslist"
     assert payload["total_plugins"] == 4
     assert payload["completed_plugins"] == 3
     assert payload["failed_plugins"] == 0
     assert payload["last_error"] is None
+
+
+def test_status_reports_post_volatility_phase_from_tracker(
+    investigation_client,
+    session_factory,
+):
+    investigation_id = "INV-STATUS-PHASE"
+
+    _seed_status_investigation(
+        session_factory,
+        investigation_id,
+        status="running",
+        progress=100,
+        current_plugin="windows.malfind",
+        executions=[("windows.info", "completed")],
+    )
+
+    # No tracker entry yet: the volatility loop finished but post-processing
+    # (indexing) has not reported a phase yet.
+    investigation_phase_tracker.clear(investigation_id)
+
+    response = investigation_client.get(
+        f"/investigation/status/{investigation_id}"
+    )
+    assert response.status_code == 200
+    assert response.json()["phase"] == PHASE_VOLATILITY
+
+    # While boundary events are hard to capture live, the tracker-mapped
+    # phases must be visible to the status endpoint the moment they are set.
+    for tracked_phase in (PHASE_INDEXING, PHASE_CLASSIFYING):
+        investigation_phase_tracker.set(investigation_id, tracked_phase)
+        response = investigation_client.get(
+            f"/investigation/status/{investigation_id}"
+        )
+        assert response.status_code == 200
+        assert response.json()["phase"] == tracked_phase
+
+    investigation_phase_tracker.set(investigation_id, PHASE_COMPLETED)
+    response = investigation_client.get(
+        f"/investigation/status/{investigation_id}"
+    )
+    assert response.status_code == 200
+    assert response.json()["phase"] == PHASE_COMPLETED
+
+    investigation_phase_tracker.clear(investigation_id)
 
 
 def test_status_reports_failed_plugins_and_last_error(
@@ -514,6 +587,7 @@ def test_status_reports_failed_plugins_and_last_error(
 
     assert payload["status"] == "running"
     assert payload["progress"] == 50
+    assert payload["phase"] == PHASE_VOLATILITY
     assert payload["total_plugins"] == 4
     assert payload["completed_plugins"] == 3
     assert payload["failed_plugins"] == 1
@@ -547,5 +621,6 @@ def test_status_reports_completed_investigation(
 
     assert payload["status"] == "completed"
     assert payload["progress"] == 100
+    assert payload["phase"] == PHASE_COMPLETED
     assert payload["completed_plugins"] == 2
     assert payload["total_plugins"] == 2

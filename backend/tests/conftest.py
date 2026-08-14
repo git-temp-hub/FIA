@@ -39,6 +39,7 @@ class _FakeAIInvestigationService:
         investigation_id: str,
         question: str,
         top_k: int = 6,
+        db=None,
     ) -> dict:
         return {
             "question": question,

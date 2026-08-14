@@ -2,12 +2,12 @@
 Upload API
 
 Receives memory dumps and registers them for forensic investigation.
+
+Uploads are streamed to disk in chunks (never buffered fully in memory) so
+multi-gigabyte memory dumps can be accepted with bounded RAM.
 """
 
 from __future__ import annotations
-
-import tempfile
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
@@ -37,27 +37,13 @@ async def upload_memory_dump(
     Upload a memory dump and create a new investigation.
     """
 
-    temporary_path: Path | None = None
-
     try:
 
         investigation_id = generate_investigation_id()
 
-        suffix = Path(file.filename).suffix
-
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=suffix,
-        ) as temp_file:
-
-            content = await file.read()
-
-            temp_file.write(content)
-
-            temporary_path = Path(temp_file.name)
-
-        metadata = investigation_service.prepare_memory_dump(
-            temporary_path,
+        metadata = await investigation_service.prepare_memory_dump_stream(
+            filename=file.filename,
+            stream=file,
         )
 
         case_repository = CaseRepository(db)
@@ -122,8 +108,3 @@ async def upload_memory_dump(
             status_code=500,
             detail="An unexpected error occurred during upload.",
         ) from exc
-
-    finally:
-
-        if temporary_path and temporary_path.exists():
-            temporary_path.unlink(missing_ok=True)
