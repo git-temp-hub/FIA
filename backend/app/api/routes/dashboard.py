@@ -27,6 +27,7 @@ from app.database.repositories import (
 from app.schemas.dashboard import (
     DashboardEvidenceDistribution,
     DashboardRecentInvestigation,
+    DashboardSeverityDistribution,
     DashboardStatsResponse,
     DashboardTrendPoint,
     SystemHealth,
@@ -196,6 +197,15 @@ def _build_stats(
         plugin_result_repository.get_artifact_type_distribution(limit=8)
     ]
 
+    severity_distribution = [
+        DashboardSeverityDistribution(
+            severity=severity,
+            count=count,
+        )
+        for severity, count in
+        plugin_result_repository.get_severity_distribution()
+    ]
+
     health = SystemHealth(
         application=settings.application.name,
         version=settings.application.version,
@@ -216,6 +226,7 @@ def _build_stats(
         recent_investigations=recent_investigations,
         investigation_trend=trend,
         evidence_distribution=distribution,
+        severity_distribution=severity_distribution,
         system_health=health,
     ).model_dump()
 

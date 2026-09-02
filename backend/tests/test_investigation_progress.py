@@ -17,6 +17,7 @@ the route's plugin callbacks synchronously.
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import types
 from pathlib import Path
@@ -91,9 +92,10 @@ sys.modules["app.services.rag.vector_store"].VectorStore = (  # type: ignore[att
 # ``investigation_service`` import is lazy inside the endpoint)
 # ==============================================================================
 
+import app.api.routes.investigation as investigation_module  # noqa: E402
 from app.api.routes.investigation import (  # noqa: E402
-    DEFAULT_PLUGINS,
     compute_progress,
+    configured_plugins,
     router as investigation_router,
 )
 from app.database.database import get_db  # noqa: E402
@@ -220,6 +222,7 @@ class _FakeInvestigationService:
         plugins: list[str],
         on_plugin_started=None,
         on_plugin_completed=None,
+        max_concurrency: int = 4,
     ):
         """
         Async entry point used by the investigation route since Phase 3.
@@ -270,6 +273,42 @@ def investigation_client(session_factory):
     test_app.dependency_overrides[get_db] = override_get_db
 
     return TestClient(test_app)
+
+
+@pytest.fixture()
+def run_pipeline(monkeypatch, session_factory):
+    """
+    Capture the background pipeline instead of scheduling it.
+
+    ``POST /investigation/start`` now returns before the analysis runs, so
+    tests drive the pipeline explicitly to keep assertions deterministic
+    rather than racing a real background task. The returned callable runs
+    every captured pipeline to completion against the test session factory.
+    """
+
+    captured: list = []
+
+    def fake_launch(investigation_id: str, memory_dump_path: str):
+        captured.append(
+            investigation_module._run_investigation_pipeline(
+                investigation_id,
+                memory_dump_path,
+                session_factory=session_factory,
+            )
+        )
+        return None
+
+    monkeypatch.setattr(
+        investigation_module,
+        "_launch_pipeline",
+        fake_launch,
+    )
+
+    def drain() -> None:
+        while captured:
+            asyncio.run(captured.pop(0))
+
+    return drain
 
 
 def _seed_status_investigation(
@@ -353,6 +392,7 @@ def test_compute_progress_guards_invalid_inputs():
 def test_start_investigation_starts_at_zero_and_updates_per_plugin(
     investigation_client,
     fake_investigation_service,
+    run_pipeline,
 ):
     investigation_id = "INV-PROGRESS"
 
@@ -364,12 +404,17 @@ def test_start_investigation_starts_at_zero_and_updates_per_plugin(
         },
     )
 
-    assert response.status_code == 200
-    assert response.json()["status"] == "completed"
+    # The endpoint accepts the work and returns before analysis runs.
+    assert response.status_code == 202
+    assert response.json()["status"] == "running"
 
-    # Ten default plugins ran against the scheduled list.
-    assert fake_investigation_service.plugins == DEFAULT_PLUGINS
-    assert len(fake_investigation_service.plugins) == 10
+    run_pipeline()
+
+    # The configured plugin set ran against the scheduled list. Compared
+    # against the live configuration rather than a hardcoded count, so the
+    # test does not break when the plugin selection is changed in settings.
+    assert fake_investigation_service.plugins == configured_plugins()
+    assert len(fake_investigation_service.plugins) > 0
 
     # Progress starts at 0 before any plugin finishes.
     assert fake_investigation_service.initial_snapshot == {
@@ -380,8 +425,11 @@ def test_start_investigation_starts_at_zero_and_updates_per_plugin(
         "total": 0,
     }
 
-    # Every completed plugin advances progress by one 10% step.
-    expected_progress = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+    # Every finished plugin advances progress by one even step.
+    total = len(configured_plugins())
+    expected_progress = [
+        min(100, int((index + 1) / total * 100)) for index in range(total)
+    ]
 
     for snapshot, expected in zip(
         fake_investigation_service.snapshots,
@@ -393,10 +441,10 @@ def test_start_investigation_starts_at_zero_and_updates_per_plugin(
 
     # The plugin currently executing is persisted for the status endpoint.
     assert fake_investigation_service.snapshots[0]["current_plugin"] == (
-        DEFAULT_PLUGINS[0]
+        configured_plugins()[0]
     )
     assert fake_investigation_service.snapshots[-1]["current_plugin"] == (
-        DEFAULT_PLUGINS[-1]
+        configured_plugins()[-1]
     )
 
 
@@ -404,6 +452,7 @@ def test_start_investigation_persists_final_completed_state(
     investigation_client,
     fake_investigation_service,
     session_factory,
+    run_pipeline,
 ):
     investigation_id = "INV-PROGRESS-FIN"
     fake_investigation_service.investigation_id = investigation_id
@@ -416,7 +465,9 @@ def test_start_investigation_persists_final_completed_state(
         },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 202
+
+    run_pipeline()
 
     with session_factory() as db:
         record = MemoryDumpRepository(db).get_by_investigation_id(
@@ -425,14 +476,14 @@ def test_start_investigation_persists_final_completed_state(
 
         assert record.status == "completed"
         assert record.progress == 100
-        # Not marked completed while plugins were still finishing is handled
-        # by the route: final status is only set after the loop returns.
-        assert record.current_plugin == DEFAULT_PLUGINS[-1]
+        # Cleared on completion so a finished investigation never looks like
+        # it is still sitting on its last plugin.
+        assert record.current_plugin is None
 
         executions = PluginExecutionRepository(db).get_by_memory_dump(
             record.id
         )
-        assert len(executions) == 10
+        assert len(executions) == len(configured_plugins())
         assert all(
             execution.execution_status == "completed"
             for execution in executions

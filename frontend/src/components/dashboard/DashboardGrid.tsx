@@ -27,6 +27,7 @@ export default function DashboardGrid({ stats }: DashboardGridProps) {
         value={formatNumber(stats.total_investigations)}
         subtitle="Registered investigations"
         icon={Search}
+        accent="cyan"
       />
 
       <StatisticCard
@@ -34,6 +35,7 @@ export default function DashboardGrid({ stats }: DashboardGridProps) {
         value={formatNumber(stats.total_memory_dumps)}
         subtitle="Uploaded memory images"
         icon={Database}
+        accent="blue"
       />
 
       <StatisticCard
@@ -41,6 +43,7 @@ export default function DashboardGrid({ stats }: DashboardGridProps) {
         value={formatNumber(stats.total_evidence)}
         subtitle="Indexed artifacts"
         icon={FileSearch}
+        accent="violet"
       />
 
       <StatisticCard
@@ -48,6 +51,7 @@ export default function DashboardGrid({ stats }: DashboardGridProps) {
         value={formatNumber(stats.total_reports)}
         subtitle="Generated PDF reports"
         icon={FileText}
+        accent="amber"
       />
 
       <StatisticCard
@@ -55,6 +59,7 @@ export default function DashboardGrid({ stats }: DashboardGridProps) {
         value={formatNumber(stats.total_ai_queries)}
         subtitle="Questions answered"
         icon={Brain}
+        accent="rose"
       />
 
       <StatisticCard
@@ -62,6 +67,7 @@ export default function DashboardGrid({ stats }: DashboardGridProps) {
         value={`${stats.plugin_execution_success_rate.toFixed(1)}%`}
         subtitle={`${stats.plugin_executions_total} total executions`}
         icon={Gauge}
+        accent="emerald"
       />
     </div>
   );

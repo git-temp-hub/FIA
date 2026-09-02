@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 import DashboardPage from "../pages/Dashboard/DashboardPage";
 import UploadPage from "../pages/Upload/UploadPage";
+import InvestigationListPage from "../pages/Investigation/InvestigationListPage";
 import InvestigationPage from "../pages/Investigation/InvestigationPage";
 import SettingsPage from "../pages/Settings/SettingsPage";
 
@@ -37,7 +38,11 @@ export default function AppRouter() {
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/upload" element={<UploadPage />} />
-            <Route path="/investigation" element={<InvestigationPage />} />
+            <Route path="/investigation" element={<InvestigationListPage />} />
+            <Route
+              path="/investigation/:investigationId"
+              element={<InvestigationPage />}
+            />
             <Route path="/evidence" element={<EvidencePage />} />
             <Route path="/rag" element={<RagSearchPage />} />
             <Route path="/ai" element={<ChatPage />} />

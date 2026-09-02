@@ -20,12 +20,12 @@ const menu = [
     icon: LayoutDashboard,
   },
   {
-    name: "New Investigation",
+    name: "Upload",
     path: "/upload",
     icon: Upload,
   },
   {
-    name: "Investigation",
+    name: "Investigations",
     path: "/investigation",
     icon: Search,
   },

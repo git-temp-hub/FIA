@@ -174,6 +174,39 @@ class ToolSettings(BaseModel):
     yara: bool = False
 
 
+class AnalysisSettings(BaseModel):
+    """
+    Volatility analysis configuration.
+
+    Runtime-editable from the Settings page. These fields intentionally have
+    no environment-variable override (see ``environment_overrides``) so a
+    saved value is always the effective value.
+    """
+
+    plugins: list[str] = Field(default_factory=list, min_length=1)
+
+    plugin_timeout_seconds: int = Field(1800, ge=30, le=86_400)
+
+    max_concurrency: int = Field(4, ge=1, le=32)
+
+
+class UploadSettings(BaseModel):
+    """
+    Memory dump upload limits.
+
+    ``max_dump_size_gb`` is runtime-editable from the Settings page and
+    replaces the former hardcoded ``MAX_MEMORY_DUMP_SIZE`` constant.
+    """
+
+    max_dump_size_gb: int = Field(64, ge=1, le=1024)
+
+    @property
+    def max_dump_size_bytes(self) -> int:
+        """Return the configured cap in bytes."""
+
+        return self.max_dump_size_gb * 1024 * 1024 * 1024
+
+
 class RAGSettings(BaseModel):
     """
     Retrieval-Augmented Generation configuration.
@@ -223,6 +256,12 @@ class Settings(BaseSettings):
     tools: ToolSettings = ToolSettings()
 
     rag: RAGSettings = RAGSettings()
+
+    analysis: AnalysisSettings = AnalysisSettings(
+        plugins=["windows.info", "windows.pslist"]
+    )
+
+    upload: UploadSettings = UploadSettings()
 
     model_config = SettingsConfigDict(
         extra="ignore",
@@ -276,7 +315,18 @@ def environment_overrides() -> dict[str, Any]:
     """
     Build configuration overrides from environment variables.
 
-    Environment variables always override YAML.
+    Environment variables always override YAML. This is the conventional
+    12-factor precedence (deployment environment beats checked-in defaults)
+    and is kept deliberately.
+
+    Consequence for runtime-editable settings: any value the Settings page
+    can write must live in a config.yaml section with NO entry below, or a
+    stale .env value would silently shadow what the user just saved. The
+    ``analysis`` and ``upload`` sections are therefore absent here on
+    purpose. ``ollama.model`` / ``ollama.base_url`` DO have overrides
+    (LLM_MODEL / OLLAMA_HOST) for deployment flexibility, so the settings
+    API reports when an environment variable is shadowing a saved value
+    rather than pretending the write had no effect.
     """
 
     import os
@@ -623,6 +673,32 @@ def get_settings() -> Settings:
 settings = get_settings()
 
 
+def reload_settings() -> Settings:
+    """
+    Rebuild the settings singleton from disk.
+
+    Called after the settings API writes config.yaml so that subsequent
+    requests observe the new values without a server restart. Mutates the
+    module-level ``settings`` object in place (rather than rebinding it) so
+    that modules which imported ``settings`` directly stay in sync.
+    """
+
+    global settings
+
+    get_settings.cache_clear()
+
+    refreshed = get_settings()
+
+    for field_name in type(refreshed).model_fields:
+        object.__setattr__(
+            settings,
+            field_name,
+            getattr(refreshed, field_name),
+        )
+
+    return settings
+
+
 # ==============================================================================
 # Public Exports
 # ==============================================================================
@@ -630,6 +706,7 @@ settings = get_settings()
 __all__ = [
     "settings",
     "get_settings",
+    "reload_settings",
     "Settings",
     "ApplicationSettings",
     "ServerSettings",

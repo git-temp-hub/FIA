@@ -19,7 +19,6 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Final
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -32,7 +31,16 @@ logger = get_logger(__name__)
 # Constants
 # ==============================================================================
 
-DEFAULT_EXECUTION_TIMEOUT: Final[int] = 1800  # 30 minutes
+def default_execution_timeout() -> int:
+    """
+    Return the configured per-plugin execution timeout, in seconds.
+
+    Read from configuration on every call (rather than captured in a module
+    constant) so a change saved from the Settings page applies to the next
+    plugin execution without restarting the server.
+    """
+
+    return settings.analysis.plugin_timeout_seconds
 
 # ==============================================================================
 # Plugin Execution Result
@@ -144,7 +152,7 @@ class PluginRunner:
         self,
         memory_dump: Path,
         plugin_name: str,
-        timeout: int = DEFAULT_EXECUTION_TIMEOUT,
+        timeout: int | None = None,
     ) -> PluginExecutionResult:
         """
         Execute a Volatility plugin, streaming its output to disk.
@@ -154,7 +162,13 @@ class PluginRunner:
         runs. On success the JSON remains on disk (``json_output_path``);
         on failure the temporary files are removed and the error message is
         read from the captured stderr file.
+
+        ``timeout`` defaults to the configured per-plugin timeout when not
+        supplied explicitly.
         """
+
+        if timeout is None:
+            timeout = default_execution_timeout()
 
         command = self.build_command(
             memory_dump=memory_dump,
@@ -367,5 +381,6 @@ plugin_runner = PluginRunner()
 __all__ = [
     "PluginExecutionResult",
     "PluginRunner",
+    "default_execution_timeout",
     "plugin_runner",
 ]

@@ -3,12 +3,11 @@ import { RefreshCw } from "lucide-react";
 
 import DashboardGrid from "../../components/dashboard/DashboardGrid";
 import RecentInvestigations from "../../components/dashboard/RecentInvestigations";
-import SystemStatus from "../../components/dashboard/SystemStatus";
 import QuickActions from "../../components/dashboard/QuickActions";
-import ThemeToggle from "../../components/ui/ThemeToggle";
 
 import InvestigationChart from "../../components/charts/InvestigationChart";
 import EvidencePieChart from "../../components/charts/EvidencePieChart";
+import SeverityChart from "../../components/charts/SeverityChart";
 
 import { getDashboardStats } from "../../services/dashboardService";
 
@@ -40,8 +39,6 @@ export default function DashboardPage() {
     }
   }
 
-  const healthy = stats?.system_health.database === "connected";
-
   return (
     <div className="space-y-8">
       {/* Page Header */}
@@ -54,24 +51,8 @@ export default function DashboardPage() {
         </div>
 
         <div className="flex items-center gap-4">
-          <ThemeToggle />
-
-          {stats && (
-            <span
-              className={`rounded-full px-5 py-2 ${
-                healthy ? "bg-green-500/20" : "bg-red-500/20"
-              }`}
-            >
-              <span
-                className={`font-semibold ${
-                  healthy ? "text-green-400" : "text-red-400"
-                }`}
-              >
-                ● {healthy ? "System Healthy" : "System Unhealthy"}
-              </span>
-            </span>
-          )}
-
+          {/* Health lives in the global header now — see
+              components/navigation/SystemHealthIndicator. */}
           <button
             type="button"
             onClick={handleRefresh}
@@ -106,20 +87,20 @@ export default function DashboardPage() {
           {/* Statistics */}
           <DashboardGrid stats={stats} />
 
-          {/* Recent Investigations + System Status */}
+          {/* Charts are the visual anchor of the page: investigation data
+              occupies the primary area, not status text. */}
           <div className="grid gap-6 xl:grid-cols-2">
+            <InvestigationChart data={stats.investigation_trend} />
+            <SeverityChart data={stats.severity_distribution} />
+          </div>
+
+          <div className="grid gap-6 xl:grid-cols-2">
+            <EvidencePieChart data={stats.evidence_distribution} />
             <RecentInvestigations items={stats.recent_investigations} />
-            <SystemStatus health={stats.system_health} />
           </div>
 
           {/* Quick Actions */}
           <QuickActions />
-
-          {/* Analytics Charts */}
-          <div className="grid gap-6 xl:grid-cols-2">
-            <InvestigationChart data={stats.investigation_trend} />
-            <EvidencePieChart data={stats.evidence_distribution} />
-          </div>
         </>
       ) : null}
     </div>

@@ -162,7 +162,11 @@ async def test_stream_to_storage_rejects_empty_upload(tmp_path, monkeypatch):
 async def test_stream_to_storage_rejects_oversized_upload(tmp_path, monkeypatch):
     storage = _redirect_storage(monkeypatch, tmp_path)
 
-    monkeypatch.setattr(manager_module, "MAX_MEMORY_DUMP_SIZE", 2048)
+    monkeypatch.setattr(
+        manager_module,
+        "max_memory_dump_size",
+        lambda: 2048,
+    )
 
     with pytest.raises(ValueError, match="exceeds the maximum"):
         await memory_dump_manager.stream_to_storage(

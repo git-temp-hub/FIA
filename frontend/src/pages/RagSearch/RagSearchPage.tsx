@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { useSearchParams } from "react-router-dom";
 
@@ -10,10 +10,9 @@ import {
   Sparkles,
 } from "lucide-react";
 
-import { listEvidenceInvestigations } from "../../services/evidenceService";
+import InvestigationPicker from "../../components/investigation/InvestigationPicker";
 import { indexInvestigation, searchRag } from "../../services/ragService";
 
-import type { EvidenceInvestigationSummary } from "../../types/evidence";
 import type { RAGSearchItem, RAGSearchResponse } from "../../types/rag";
 
 function PrettyDocument({ document }: { document: string }) {
@@ -89,10 +88,6 @@ function ResultCard({ item, rank }: { item: RAGSearchItem; rank: number }) {
 export default function RagSearchPage() {
   const [searchParams] = useSearchParams();
 
-  const [investigations, setInvestigations] = useState<
-    EvidenceInvestigationSummary[]
-  >([]);
-
   const [query, setQuery] = useState("");
   const [investigationId, setInvestigationId] = useState(
     searchParams.get("id") ?? "",
@@ -103,12 +98,6 @@ export default function RagSearchPage() {
   const [error, setError] = useState<string | null>(null);
   const [indexing, setIndexing] = useState(false);
   const [indexMessage, setIndexMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    listEvidenceInvestigations()
-      .then(setInvestigations)
-      .catch(() => setInvestigations([]));
-  }, []);
 
   async function handleSearch(event?: { preventDefault: () => void }) {
     event?.preventDefault();
@@ -194,28 +183,11 @@ export default function RagSearchPage() {
             </div>
           </div>
 
-          <div>
-            <label className="mb-2 block text-sm font-medium text-slate-400">
-              Investigation
-            </label>
-
-            <select
-              value={investigationId}
-              onChange={(event) => setInvestigationId(event.target.value)}
-              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-3 text-white outline-none focus:border-cyan-500"
-            >
-              <option value="">All investigations</option>
-
-              {investigations.map((item) => (
-                <option
-                  key={item.investigation_id}
-                  value={item.investigation_id}
-                >
-                  {item.investigation_id} — {item.filename}
-                </option>
-              ))}
-            </select>
-          </div>
+          <InvestigationPicker
+            value={investigationId}
+            onChange={setInvestigationId}
+            placeholder="All investigations"
+          />
 
           <div className="flex items-end gap-2">
             <button

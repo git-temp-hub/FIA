@@ -19,6 +19,7 @@ from app.api.routes.evidence import router as evidence_router
 from app.api.routes.investigation import router as investigation_router
 from app.api.routes.rag import router as rag_router
 from app.api.routes.reports import router as reports_router
+from app.api.routes.settings import router as settings_router
 from app.api.routes.upload import router as upload_router
 
 from app.core.config import settings
@@ -102,6 +103,7 @@ app.include_router(rag_router)
 app.include_router(chat_router)
 app.include_router(reports_router)
 app.include_router(dashboard_router)
+app.include_router(settings_router)
 
 # ==============================================================================
 # Root Endpoint

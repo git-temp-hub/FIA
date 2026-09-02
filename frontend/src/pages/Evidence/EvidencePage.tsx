@@ -2,6 +2,8 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 
 import { useSearchParams } from "react-router-dom";
 
+import InvestigationPicker from "../../components/investigation/InvestigationPicker";
+
 import {
   AlertCircle,
   ChevronDown,
@@ -17,13 +19,11 @@ import {
 import {
   getEvidenceDetail,
   listEvidence,
-  listEvidenceInvestigations,
 } from "../../services/evidenceService";
 
 import type {
   EvidenceDetail,
   EvidenceFilters,
-  EvidenceInvestigationSummary,
   EvidenceItem,
   EvidenceListResponse,
 } from "../../types/evidence";
@@ -85,10 +85,6 @@ function PrettyValue({ value }: { value: string }) {
 export default function EvidencePage() {
   const [searchParams] = useSearchParams();
 
-  const [investigations, setInvestigations] = useState<
-    EvidenceInvestigationSummary[]
-  >([]);
-
   const [investigationId, setInvestigationId] = useState(
     searchParams.get("id") ?? "",
   );
@@ -116,12 +112,6 @@ export default function EvidencePage() {
 
   const [detail, setDetail] = useState<EvidenceDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-
-  useEffect(() => {
-    listEvidenceInvestigations()
-      .then(setInvestigations)
-      .catch(() => setInvestigations([]));
-  }, []);
 
   useEffect(() => {
     const timer = setTimeout(
@@ -255,29 +245,12 @@ export default function EvidencePage() {
       </div>
 
       <div className="rounded-xl border border-slate-700 bg-slate-900 p-4">
-        <label className="mb-2 block text-sm font-medium text-slate-400">
-          Investigation
-        </label>
-
-        <select
+        <InvestigationPicker
           value={investigationId}
-          onChange={(event) =>
-            handleInvestigationChange(event.target.value)
-          }
-          className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-cyan-500 sm:w-96"
-        >
-          <option value="">All investigations</option>
-
-          {investigations.map((item) => (
-            <option
-              key={item.investigation_id}
-              value={item.investigation_id}
-            >
-              {item.investigation_id} — {item.filename} (
-              {item.evidence_count} evidence)
-            </option>
-          ))}
-        </select>
+          onChange={handleInvestigationChange}
+          placeholder="All investigations"
+          className="sm:w-96"
+        />
       </div>
 
       <div className="grid gap-4 rounded-xl border border-slate-700 bg-slate-900 p-4 md:grid-cols-4">

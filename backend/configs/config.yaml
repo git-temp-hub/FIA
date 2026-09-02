@@ -1,25 +1,54 @@
 application:
-  name: "AI Memory Forensic Investigation Assistant"
-  version: "1.0.0"
-  environment: "development"
+  name: AI Memory Forensic Investigation Assistant
+  version: 1.0.0
+  environment: development
 
 server:
-  host: "127.0.0.1"
+  host: 127.0.0.1
   port: 8000
 
 database:
-  path: "storage/database/fia.db"
+  path: storage/database/fia.db
 
 vector_database:
-  path: "storage/vectors"
+  path: storage/vectors
 
+# NOTE: LLM_MODEL and OLLAMA_HOST in backend/.env override the two values
+# below. When either is set, the Settings page still saves here but reports
+# the value as environment-shadowed, because the environment wins.
 ollama:
-  base_url: "http://localhost:11434"
-  model: "qwen3:14b"
+  base_url: http://localhost:11434
+  model: qwen3:14b
+
+# Runtime-editable analysis settings (see app/api/routes/settings.py).
+# These deliberately have NO environment-variable counterpart so that values
+# saved from the Settings page are authoritative and cannot be silently
+# shadowed by a stale .env entry.
+analysis:
+  plugins:
+    - windows.info
+    - windows.pslist
+    - windows.pstree
+    - windows.cmdline
+    - windows.dlllist
+    - windows.handles
+    - windows.netscan
+    - windows.filescan
+    - windows.registry.printkey
+    - windows.malfind
+  # Per-plugin subprocess timeout. A plugin exceeding this is killed and
+  # recorded as failed; the rest of the run continues.
+  plugin_timeout_seconds: 1800
+  # How many plugins execute in parallel.
+  max_concurrency: 4
+
+upload:
+  # Hard cap enforced while the dump streams in, before it lands on disk.
+  max_dump_size_gb: 80
 
 logging:
-  level: "INFO"
-  config_path: "configs/logging.yaml"
+  level: INFO
+  config_path: configs/logging.yaml
 
 reporting:
-  output_directory: "storage/reports"
+  output_directory: storage/reports

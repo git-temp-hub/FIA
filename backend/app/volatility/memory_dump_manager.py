@@ -37,7 +37,17 @@ SUPPORTED_MEMORY_EXTENSIONS: Final[tuple[str, ...]] = (
 
 DEFAULT_CHUNK_SIZE: Final[int] = 1024 * 1024  # 1 MB
 
-MAX_MEMORY_DUMP_SIZE: Final[int] = 1024 * 1024 * 1024 * 64  # 64 GB
+
+def max_memory_dump_size() -> int:
+    """
+    Return the currently configured maximum dump size, in bytes.
+
+    Read from configuration on every call (rather than captured in a module
+    constant) so a change saved from the Settings page takes effect without
+    restarting the server.
+    """
+
+    return settings.upload.max_dump_size_bytes
 
 
 # ==============================================================================
@@ -145,7 +155,7 @@ class MemoryDumpManager:
                 "Memory dump file is empty."
             )
 
-        if file_size > MAX_MEMORY_DUMP_SIZE:
+        if file_size > max_memory_dump_size():
             raise ValueError(
                 "Memory dump exceeds the maximum supported size."
             )
@@ -297,8 +307,10 @@ class MemoryDumpManager:
         ------
         ValueError
             If the extension is unsupported, the stream is empty, or the
-            content exceeds ``MAX_MEMORY_DUMP_SIZE``.
+            content exceeds the configured maximum dump size.
         """
+
+        size_limit = max_memory_dump_size()
 
         basename = Path(filename or "").name
 
@@ -334,7 +346,7 @@ class MemoryDumpManager:
 
                     total += len(chunk)
 
-                    if total > MAX_MEMORY_DUMP_SIZE:
+                    if total > size_limit:
 
                         raise ValueError(
                             "Memory dump exceeds the maximum supported size."
@@ -398,5 +410,6 @@ __all__ = [
     "AsyncReadable",
     "MemoryDumpInfo",
     "MemoryDumpManager",
+    "max_memory_dump_size",
     "memory_dump_manager",
 ]

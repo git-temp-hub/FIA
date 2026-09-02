@@ -467,6 +467,33 @@ class PluginResultRepository(BaseRepository[PluginResult]):
             self.session.execute(statement).all()
         )
 
+    def get_severity_distribution(
+        self,
+    ) -> list[tuple]:
+        """
+        Return evidence counts grouped by classified risk level.
+
+        Records whose ``risk_level`` is NULL have not been classified yet
+        and are reported under ``"unclassified"`` rather than dropped, so
+        the total always reconciles with the overall evidence count.
+        """
+
+        statement = (
+            select(
+                func.coalesce(
+                    PluginResult.risk_level,
+                    "unclassified",
+                ).label("severity"),
+                func.count(PluginResult.id).label("count"),
+            )
+            .group_by("severity")
+            .order_by(func.count(PluginResult.id).desc())
+        )
+
+        return list(
+            self.session.execute(statement).all()
+        )
+
     def list_investigations(
         self,
     ) -> list[tuple]:
@@ -480,6 +507,7 @@ class PluginResultRepository(BaseRepository[PluginResult]):
                 MemoryDump.filename,
                 MemoryDump.status,
                 MemoryDump.progress,
+                MemoryDump.uploaded_at,
                 func.count(PluginResult.id).label("evidence_count"),
                 func.count(
                     func.distinct(

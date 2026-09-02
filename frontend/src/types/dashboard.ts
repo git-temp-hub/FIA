@@ -18,6 +18,11 @@ export interface DashboardEvidenceDistribution {
   count: number;
 }
 
+export interface DashboardSeverityDistribution {
+  severity: string;
+  count: number;
+}
+
 export interface SystemHealth {
   application: string;
   version: string;
@@ -38,5 +43,6 @@ export interface DashboardStats {
   recent_investigations: DashboardRecentInvestigation[];
   investigation_trend: DashboardTrendPoint[];
   evidence_distribution: DashboardEvidenceDistribution[];
+  severity_distribution: DashboardSeverityDistribution[];
   system_health: SystemHealth;
 }

@@ -12,7 +12,7 @@ import {
   X,
 } from "lucide-react";
 
-import { listEvidenceInvestigations } from "../../services/evidenceService";
+import InvestigationPicker from "../../components/investigation/InvestigationPicker";
 import { getStoredSessionId } from "../../services/chatSession";
 import {
   downloadReport,
@@ -21,7 +21,6 @@ import {
   listReports,
 } from "../../services/reportService";
 
-import type { EvidenceInvestigationSummary } from "../../types/evidence";
 import type { ReportDetailResponse, ReportInfo } from "../../types/report";
 
 const STATUS_STYLES: Record<string, string> = {
@@ -216,10 +215,6 @@ function ReportDetailModal({
 export default function ReportsPage() {
   const [searchParams] = useSearchParams();
 
-  const [investigations, setInvestigations] = useState<
-    EvidenceInvestigationSummary[]
-  >([]);
-
   const [investigationId, setInvestigationId] = useState(
     searchParams.get("id") ?? "",
   );
@@ -236,10 +231,6 @@ export default function ReportsPage() {
   const [detailLoading, setDetailLoading] = useState(false);
 
   useEffect(() => {
-    listEvidenceInvestigations()
-      .then(setInvestigations)
-      .catch(() => setInvestigations([]));
-
     listReports()
       .then((response) => setReports(response.items))
       .catch(() => setError("Failed to load report history."))
@@ -323,26 +314,11 @@ export default function ReportsPage() {
             Select an investigation and generate a complete PDF report.
           </p>
 
-          <label className="mb-2 mt-4 block text-sm font-medium text-slate-400">
-            Investigation
-          </label>
-
-          <select
+          <InvestigationPicker
             value={investigationId}
-            onChange={(event) => setInvestigationId(event.target.value)}
-            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-3 text-white outline-none focus:border-cyan-500"
-          >
-            <option value="">Select an investigation</option>
-
-            {investigations.map((item) => (
-              <option
-                key={item.investigation_id}
-                value={item.investigation_id}
-              >
-                {item.investigation_id} — {item.filename}
-              </option>
-            ))}
-          </select>
+            onChange={setInvestigationId}
+            className="mt-4"
+          />
 
           <button
             type="button"

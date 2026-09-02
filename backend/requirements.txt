@@ -31,6 +31,7 @@ jinja2
 # Configuration
 python-dotenv
 pyyaml
+ruamel.yaml
 
 # Utilities
 httpx

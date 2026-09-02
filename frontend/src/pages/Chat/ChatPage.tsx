@@ -20,9 +20,8 @@ import {
   getStoredSessionId,
   startSession,
 } from "../../services/chatSession";
-import { listEvidenceInvestigations } from "../../services/evidenceService";
+import InvestigationPicker from "../../components/investigation/InvestigationPicker";
 
-import type { EvidenceInvestigationSummary } from "../../types/evidence";
 import type { EvidenceReference } from "../../types/chat";
 
 interface ChatMessageView {
@@ -151,10 +150,6 @@ function MessageBubble({ message }: { message: ChatMessageView }) {
 export default function ChatPage() {
   const [searchParams] = useSearchParams();
 
-  const [investigations, setInvestigations] = useState<
-    EvidenceInvestigationSummary[]
-  >([]);
-
   const [investigationId, setInvestigationId] = useState(
     searchParams.get("id") ?? "",
   );
@@ -176,12 +171,6 @@ export default function ChatPage() {
     counterRef.current += 1;
     return `m-${counterRef.current}`;
   }
-
-  useEffect(() => {
-    listEvidenceInvestigations()
-      .then(setInvestigations)
-      .catch(() => setInvestigations([]));
-  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -303,29 +292,13 @@ export default function ChatPage() {
       </div>
 
       <div>
-        <label className="mb-2 block text-sm font-medium text-slate-400">
-          Investigation
-        </label>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <select
+        <div className="flex flex-wrap items-end gap-3">
+          <InvestigationPicker
             value={investigationId}
-            onChange={(event) => setInvestigationId(event.target.value)}
-            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-3 text-white outline-none focus:border-cyan-500 md:w-[480px]"
-          >
-            <option value="">
-              Select an investigation to begin chatting
-            </option>
-
-            {investigations.map((item) => (
-              <option
-                key={item.investigation_id}
-                value={item.investigation_id}
-              >
-                {item.investigation_id} — {item.filename}
-              </option>
-            ))}
-          </select>
+            onChange={setInvestigationId}
+            placeholder="Select an investigation to begin chatting"
+            className="w-full md:w-[480px]"
+          />
 
           <button
             type="button"

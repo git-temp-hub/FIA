@@ -43,6 +43,18 @@ class DashboardEvidenceDistribution(BaseModel):
     count: int
 
 
+class DashboardSeverityDistribution(BaseModel):
+    """
+    Evidence counts grouped by classified risk level.
+
+    ``severity`` is ``"unclassified"`` for evidence that has not been
+    through risk classification yet.
+    """
+
+    severity: str
+    count: int
+
+
 class SystemHealth(BaseModel):
     """
     Live system health status.
@@ -71,6 +83,7 @@ class DashboardStatsResponse(BaseModel):
     recent_investigations: list[DashboardRecentInvestigation]
     investigation_trend: list[DashboardTrendPoint]
     evidence_distribution: list[DashboardEvidenceDistribution]
+    severity_distribution: list[DashboardSeverityDistribution]
     system_health: SystemHealth
 
 
