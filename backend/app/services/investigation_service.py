@@ -377,10 +377,26 @@ class InvestigationService:
                         execution_time,
                     )
 
+        # Prime Volatility's symbol cache with a single plugin before running
+        # the rest concurrently.
+        #
+        # On first use against a given dump, Volatility resolves the kernel
+        # symbols and writes them to a shared on-disk cache
+        # (symbols/windows/ntkrnlmp.pdb/<GUID>.json.xz). On Windows a file
+        # being written cannot be opened by another process, so every plugin
+        # launched during that window dies with
+        # "PermissionError: [WinError 32] ... used by another process"
+        # followed by "Unable to validate the plugin requirements", and the
+        # investigation completes with no evidence at all. Letting one plugin
+        # finish first makes the cache available to all the others. The
+        # primer has to run anyway, so the only cost is losing its overlap.
+        await run_one(plugins[0], 0)
+
         await asyncio.gather(
             *(
                 run_one(plugin_name, position)
                 for position, plugin_name in enumerate(plugins)
+                if position > 0
             )
         )
 

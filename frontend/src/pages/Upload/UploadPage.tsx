@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { ArrowRight, CheckCircle2 } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { ArrowRight, CheckCircle2, FileArchive, Play } from "lucide-react";
 
 import UploadDropzone from "../../components/upload/UploadDropzone";
 import FileInformation from "../../components/upload/FileInformation";
@@ -9,6 +9,8 @@ import UploadActions from "../../components/upload/UploadActions";
 
 import { useUpload } from "../../upload/upload-context";
 import { useToast } from "../../components/ui/toast-context";
+import { listInvestigations } from "../../services/investigationService";
+import type { InvestigationSummary } from "../../types/investigation";
 
 export default function UploadPage() {
   const navigate = useNavigate();
@@ -29,6 +31,41 @@ export default function UploadPage() {
       onPage.current = false;
     };
   }, []);
+
+  // Dumps that finished uploading but were never analyzed, read from the
+  // backend. Client-side upload state is memory-only: a reload, a crash, or
+  // a hot-reload in dev discards it while the transfer keeps running
+  // server-side, which previously left a completed upload with no visible
+  // next step. Sourcing this from the server makes the next action
+  // recoverable no matter what happened to the page.
+  const [awaiting, setAwaiting] = useState<InvestigationSummary[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    function load() {
+      listInvestigations()
+        .then((items) => {
+          if (cancelled) return;
+          setAwaiting(items.filter((item) => item.status === "uploaded"));
+        })
+        .catch(() => {
+          if (!cancelled) setAwaiting([]);
+        });
+    }
+
+    load();
+
+    // Refresh while a transfer is in flight so the entry appears as soon as
+    // the server finishes writing the dump, even if the response to this
+    // browser was lost.
+    const timer = window.setInterval(load, 5000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [uploading]);
 
   async function handleUpload() {
     if (!file || uploading) return;
@@ -150,6 +187,50 @@ export default function UploadPage() {
             onUpload={handleUpload}
           />
         </>
+      )}
+
+      {awaiting.length > 0 && (
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+          <h2 className="text-xl font-semibold text-white">
+            Uploaded, awaiting analysis
+          </h2>
+
+          <p className="mt-1 text-sm text-slate-500">
+            These dumps are stored on the server and ready to analyze.
+          </p>
+
+          <div className="mt-5 space-y-3">
+            {awaiting.map((item) => (
+              <div
+                key={item.investigation_id}
+                className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-800 bg-slate-950 p-4"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <FileArchive className="shrink-0 text-cyan-400" size={22} />
+
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-white">
+                      {item.filename}
+                    </p>
+                    <p className="mt-0.5 font-mono text-xs text-slate-500">
+                      {item.investigation_id}
+                    </p>
+                  </div>
+                </div>
+
+                <Link
+                  to={`/investigation/${encodeURIComponent(
+                    item.investigation_id,
+                  )}`}
+                  className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-black transition hover:bg-cyan-400"
+                >
+                  <Play size={15} />
+                  Start Investigation
+                </Link>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );
