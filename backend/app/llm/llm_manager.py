@@ -159,7 +159,18 @@ class LLMManager:
                     "num_ctx": self._settings.llm_context_window,
                 },
             )
-        except (ConnectionError, TimeoutError, httpx.TimeoutException, httpx.ConnectError) as exc:
+        except (TimeoutError, httpx.TimeoutException) as exc:
+            # Distinguished from a connection failure on purpose: a read
+            # timeout means Ollama was reachable and still generating, which
+            # points at LLM_TIMEOUT being too low for the answer length
+            # rather than at anything being unreachable.
+            raise RuntimeError(
+                f"Ollama did not finish generating within "
+                f"{self._settings.llm_timeout:.0f}s "
+                f"(LLM_TIMEOUT). The model is reachable but the answer took "
+                f"longer than the configured limit."
+            ) from exc
+        except (ConnectionError, httpx.ConnectError) as exc:
             raise RuntimeError(
                 f"Failed to connect to Ollama host '{self._settings.ollama_host}'."
             ) from exc

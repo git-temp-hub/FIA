@@ -26,7 +26,10 @@ _CONFIDENCE_LINE_PATTERN = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 
-_CITATION_PATTERN = re.compile(r"\[(\d+)\]")
+# Matches a bracketed citation group: [1], [4,5] or [4, 5]. The grouped form
+# appears when the model cites several records for one statement; matching
+# only "[digit]" silently dropped every citation after the first in a group.
+_CITATION_PATTERN = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")
 
 
 class ResponseParser:
@@ -88,12 +91,14 @@ class ResponseParser:
 
         citations: list[int] = []
 
-        for token in _CITATION_PATTERN.findall(text):
+        for group in _CITATION_PATTERN.findall(text):
 
-            number = int(token)
+            for token in group.split(","):
 
-            if 1 <= number <= num_evidence and number not in citations:
-                citations.append(number)
+                number = int(token.strip())
+
+                if 1 <= number <= num_evidence and number not in citations:
+                    citations.append(number)
 
         logger.info(
             "Parsed answer with %d citations.",

@@ -136,7 +136,7 @@ class PluginRunner:
 
         self.registry.validate_plugin(plugin_name)
 
-        return [
+        command = [
             str(self.manager.executable),
             "-f",
             str(memory_dump),
@@ -144,6 +144,15 @@ class PluginRunner:
             "json",
             plugin_name,
         ]
+
+        # Plugins such as windows.vadyarascan need input beyond the memory
+        # image; their arguments are resolved here, at execution time.
+        metadata = self.registry.get_plugin(plugin_name)
+
+        if metadata is not None:
+            command.extend(metadata.extra_args())
+
+        return command
     # --------------------------------------------------------------------------
     # Plugin Execution
     # --------------------------------------------------------------------------

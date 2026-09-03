@@ -216,21 +216,39 @@ class VectorStore:
         Delete every document matching a metadata filter.
 
         Returns the number of deleted documents.
+
+        The deletion is delegated to Chroma via the ``where`` filter rather
+        than by first fetching the matching ids. Fetching them only to count
+        them fails on large investigations: retrieving ~190k ids exceeds
+        SQLite's bound-variable limit and raises
+        "too many SQL variables". Counting before and after is O(1) and
+        works at any size.
         """
 
-        matching_ids = self.get_by_metadata(where)
+        try:
+            before = self._collection.count()
+        except Exception:
+            before = None
 
-        if matching_ids:
-            self._collection.delete(
-                where=where,
+        self._collection.delete(
+            where=where,
+        )
+
+        if before is None:
+            logger.info(
+                "Deleted documents matching metadata filter (count "
+                "unavailable)."
             )
+            return 0
+
+        deleted = max(0, before - self._collection.count())
 
         logger.info(
             "Deleted %d documents matching metadata filter.",
-            len(matching_ids),
+            deleted,
         )
 
-        return len(matching_ids)
+        return deleted
 
     # ------------------------------------------------------------------
 

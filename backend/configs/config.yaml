@@ -36,9 +36,21 @@ analysis:
     - windows.filescan
     - windows.registry.printkey
     - windows.malfind
+    - windows.psscan
+    - windows.cmdscan
+    - windows.consoles
+    - windows.netstat
+    - windows.vadinfo
+    - windows.vadwalk
+    - windows.memmap
+    - windows.modules
+    - windows.svcscan
+    - windows.registry.hivelist
+    - windows.getsids
+    - windows.vadyarascan
   # Per-plugin subprocess timeout. A plugin exceeding this is killed and
   # recorded as failed; the rest of the run continues.
-  plugin_timeout_seconds: 1800
+  plugin_timeout_seconds: 7200
   # How many plugins execute in parallel.
   max_concurrency: 4
 

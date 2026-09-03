@@ -12,9 +12,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Final
+from typing import Callable, Final
 
 from app.core.logging import get_logger
+from app.volatility.yara_rules import yara_rule_arguments
 
 logger = get_logger(__name__)
 
@@ -66,6 +67,20 @@ class PluginMetadata:
     produces_json: bool = True
 
     enabled: bool = True
+
+    # Extra command-line arguments appended after the plugin name, for
+    # plugins that require input beyond the memory image itself (for
+    # example windows.vadyarascan needs --yara-file). Built lazily via a
+    # factory so paths are resolved at execution time rather than import.
+    extra_args_factory: "Callable[[], list[str]] | None" = None
+
+    def extra_args(self) -> list[str]:
+        """Return the plugin's extra command-line arguments."""
+
+        if self.extra_args_factory is None:
+            return []
+
+        return list(self.extra_args_factory())
 
 
 # ==============================================================================
@@ -160,6 +175,82 @@ class PluginRegistry:
                 name="windows.info",
                 category=PluginCategory.SYSTEM,
                 description="System information.",
+            ),
+
+            # ------------------------------------------------------------
+            # Plugins required by the 20-question forensic routing table.
+            # Registering them here makes them selectable in Settings and
+            # runnable by the investigation pipeline.
+            # ------------------------------------------------------------
+
+            PluginMetadata(
+                name="windows.psscan",
+                category=PluginCategory.PROCESS,
+                description="Scan for processes, including hidden/unlinked.",
+            ),
+            PluginMetadata(
+                name="windows.cmdscan",
+                category=PluginCategory.PROCESS,
+                description="Recover command history from console buffers.",
+            ),
+            PluginMetadata(
+                name="windows.consoles",
+                category=PluginCategory.PROCESS,
+                description="Recover console output and command history.",
+            ),
+            PluginMetadata(
+                name="windows.getsids",
+                category=PluginCategory.PROCESS,
+                description="List security identifiers owning each process.",
+            ),
+            PluginMetadata(
+                name="windows.netstat",
+                category=PluginCategory.NETWORK,
+                description="List network connections from kernel structures.",
+            ),
+            PluginMetadata(
+                name="windows.vadinfo",
+                category=PluginCategory.MEMORY,
+                description="List virtual address descriptors and protections.",
+            ),
+            PluginMetadata(
+                name="windows.vadwalk",
+                category=PluginCategory.MEMORY,
+                description="Walk the virtual address descriptor tree.",
+            ),
+            PluginMetadata(
+                name="windows.memmap",
+                category=PluginCategory.MEMORY,
+                description="Map process memory ranges.",
+            ),
+            PluginMetadata(
+                name="windows.modules",
+                category=PluginCategory.KERNEL,
+                description="List loaded kernel modules.",
+            ),
+            PluginMetadata(
+                name="windows.svcscan",
+                category=PluginCategory.SYSTEM,
+                description="Scan for Windows services.",
+            ),
+            PluginMetadata(
+                name="windows.registry.hivelist",
+                category=PluginCategory.REGISTRY,
+                description="List registry hives present in memory.",
+            ),
+            PluginMetadata(
+                name="windows.dumpfiles",
+                category=PluginCategory.FILESYSTEM,
+                description="Extract cached file objects from memory.",
+            ),
+            PluginMetadata(
+                name="windows.vadyarascan",
+                category=PluginCategory.MALWARE,
+                description=(
+                    "Scan process memory regions with YARA rules "
+                    "(Mimikatz, Cobalt Strike, CoinMiner, Potato-family)."
+                ),
+                extra_args_factory=yara_rule_arguments,
             ),
         ]
 

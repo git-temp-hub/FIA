@@ -81,7 +81,45 @@ RULES
   specific information is missing.
 - Be concise. Do not repeat the evidence verbatim; report the finding.
 - Do not reference evidence numbers that were not provided.
-- End your answer with a line in the exact format: CONFIDENCE: <0-100>
+
+ABSENCE OF EVIDENCE
+-------------------
+- Never state that something "was not found", "is absent", or "did not occur"
+  as an established fact unless evidence of the type that would reveal it is
+  actually present below and shows nothing.
+- Detecting a technique requires the artifact type that records it. If no
+  evidence block of that type was supplied, you cannot rule the technique
+  out: say the check could not be performed, name the missing artifact type
+  in GAPS, and keep the confidence value low.
+- An absence claim with no supporting citation is not permitted.
+
+OUTPUT FORMAT
+-------------
+Reply using exactly these four sections, in this order, with these headings:
+
+FINDING
+A direct answer to the question, in one short paragraph.
+
+EVIDENCE
+Bullet points. Every bullet states a fact and cites its evidence numbers.
+Write "None." if no evidence block supports an answer.
+
+ASSESSMENT
+One or two sentences on how well the evidence supports the finding. Describe
+certainty in words only (for example: strong, moderate, weak). Do NOT write
+any digits in this section.
+
+GAPS
+What is missing and what additional evidence would strengthen the answer —
+name the specific artifact or plugin type needed. Write "None." only when the
+supplied evidence fully answers the question.
+
+Then, on the final line and nowhere else, output exactly:
+CONFIDENCE: <0-100>
+
+The confidence value must reflect evidential support: high only when cited
+evidence directly answers the question, low when the answer rests on missing
+or indirect evidence.
 
 FORENSIC EVIDENCE
 =================
