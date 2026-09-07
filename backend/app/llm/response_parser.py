@@ -26,10 +26,16 @@ _CONFIDENCE_LINE_PATTERN = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 
-# Matches a bracketed citation group: [1], [4,5] or [4, 5]. The grouped form
-# appears when the model cites several records for one statement; matching
-# only "[digit]" silently dropped every citation after the first in a group.
-_CITATION_PATTERN = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")
+# Matches a bracketed citation group: [1], [4,5], [4, 5] or the range form
+# [1-6]. Models use all four interchangeably; matching only "[digit]"
+# silently dropped every citation after the first in a group, and a range
+# citation dropped the whole group, reporting zero citations for an answer
+# that had cited six records.
+_CITATION_PATTERN = re.compile(
+    r"\[(\d+(?:\s*(?:,|-|–|—)\s*\d+)*)\]"
+)
+
+_RANGE_SEPARATORS = ("-", "–", "—")
 
 
 class ResponseParser:
@@ -93,12 +99,33 @@ class ResponseParser:
 
         for group in _CITATION_PATTERN.findall(text):
 
-            for token in group.split(","):
+            for part in group.split(","):
 
-                number = int(token.strip())
+                part = part.strip()
 
-                if 1 <= number <= num_evidence and number not in citations:
-                    citations.append(number)
+                separator = next(
+                    (sep for sep in _RANGE_SEPARATORS if sep in part),
+                    None,
+                )
+
+                if separator is not None:
+                    # "[1-6]" cites every record from 1 through 6.
+                    start_text, _, end_text = part.partition(separator)
+                    try:
+                        start = int(start_text.strip())
+                        end = int(end_text.strip())
+                    except ValueError:
+                        continue
+                    numbers = range(start, end + 1) if start <= end else ()
+                else:
+                    try:
+                        numbers = (int(part),)
+                    except ValueError:
+                        continue
+
+                for number in numbers:
+                    if 1 <= number <= num_evidence and number not in citations:
+                        citations.append(number)
 
         logger.info(
             "Parsed answer with %d citations.",

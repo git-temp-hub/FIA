@@ -37,6 +37,7 @@ from sqlalchemy import Text, and_, case, func, literal_column, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.logging import get_logger
+from app.llm.confidence import calibrate as calibrate_confidence
 from app.models.memory_dump import MemoryDump
 from app.models.plugin_execution import PluginExecution
 from app.models.plugin_result import PluginResult
@@ -639,6 +640,7 @@ class ForensicEvidenceRetrievalService:
         investigation_id: str,
         question: str,
         top_k: int = FALLBACK_TOP_K,
+        plugins: tuple[str, ...] | None = None,
     ) -> list[dict]:
         """
         Retrieve the most relevant evidence records for a question.
@@ -653,6 +655,14 @@ class ForensicEvidenceRetrievalService:
 
         top_k : int
 
+        plugins : tuple[str, ...] | None
+            Restrict retrieval to these plugins. Supplied by the question
+            router for questions whose authoritative sources are known, so
+            the answer is drawn from the plugins that actually address the
+            question rather than from whichever records rank highest across
+            the whole corpus. Falls back to the normal intent dispatch when
+            the scoped query returns nothing.
+
         Returns
         -------
         list[dict]
@@ -660,6 +670,31 @@ class ForensicEvidenceRetrievalService:
         """
 
         limit = max(1, min(int(top_k), FALLBACK_QUERY_LIMIT))
+
+        if plugins:
+
+            scoped = self._fetch_by_plugins(
+                session, investigation_id, plugins, limit
+            )
+
+            if scoped:
+                logger.info(
+                    "[CHAT] Routed retrieval matched %d records from %s "
+                    "for '%s'.",
+                    len(scoped),
+                    ", ".join(plugins),
+                    investigation_id,
+                )
+                return [
+                    self._to_match(record, investigation_id)
+                    for record in scoped[:top_k]
+                ]
+
+            logger.info(
+                "[CHAT] Routed retrieval found nothing in %s; falling back "
+                "to intent dispatch.",
+                ", ".join(plugins),
+            )
 
         intent = detect_query_intent(question)
 
@@ -931,6 +966,80 @@ class ForensicEvidenceRetrievalService:
         ordered = [merged[record_id] for record_id in sorted(merged)]
 
         return ordered[:limit]
+
+    def _fetch_by_plugins(
+        self,
+        session: Session,
+        investigation_id: str,
+        plugins: tuple[str, ...],
+        limit: int,
+    ) -> list[PluginResult]:
+        """
+        Fetch evidence produced by specific plugins, most significant first.
+
+        Ordering is by classified risk: ``high`` before ``medium`` before
+        everything else. The bulk enumeration plugins produce large numbers
+        of ``insufficient-evidence`` rows that carry no risk signal — on this
+        investigation roughly 39% of all evidence — so ranking them last
+        keeps them available as corroboration without letting them crowd out
+        the records that actually answer the question.
+        """
+
+        risk_rank = case(
+            (PluginResult.risk_level == "high", 0),
+            (PluginResult.risk_level == "medium", 1),
+            (PluginResult.risk_level == "low", 2),
+            else_=3,
+        )
+
+        # Query each mapped plugin separately and interleave the results.
+        # A single ORDER BY across all of them ranks by risk and then by id,
+        # and within one risk tier the lowest ids all belong to whichever
+        # plugin ran first — so a question mapped to five plugins was
+        # answered entirely from the earliest one, and the model reported
+        # the others as having produced nothing.
+        per_plugin: list[list[PluginResult]] = []
+
+        for plugin in plugins:
+
+            statement = (
+                self._scoped_select(session, investigation_id)
+                .where(PluginExecution.plugin_name == plugin)
+                .order_by(risk_rank, PluginResult.id.asc())
+                .limit(max(limit, FALLBACK_QUERY_LIMIT))
+            )
+
+            found = list(session.scalars(statement).all())
+
+            if found:
+                per_plugin.append(found)
+
+        if not per_plugin:
+            return []
+
+        # Round-robin so every plugin that produced evidence is represented,
+        # while risk ordering still governs which records each contributes.
+        interleaved: list[PluginResult] = []
+        cap = max(limit, FALLBACK_QUERY_LIMIT)
+        index = 0
+
+        while len(interleaved) < cap:
+
+            added = False
+
+            for bucket in per_plugin:
+                if index < len(bucket):
+                    interleaved.append(bucket[index])
+                    added = True
+                    if len(interleaved) >= cap:
+                        break
+
+            if not added:
+                break
+
+            index += 1
+
+        return interleaved
 
     def _fetch_suspicious(
         self,
@@ -1356,15 +1465,25 @@ def generate_answer_from_references(
         for number in citations
     ]
 
-    if confidence is None:
-        confidence = compute_evidence_confidence(
-            references,
-            quality=quality,
-        )
-
     insufficient = (
         "cannot be determined from the available evidence"
         in (parsed["answer"] or "").lower()
+    )
+
+    prior = (
+        confidence
+        if confidence is not None
+        else compute_evidence_confidence(references, quality=quality)
+    )
+
+    # ``prior`` is only ever an upper bound. It is currently pinned at 100 on
+    # the deterministic path because every persisted ``confidence_score`` is
+    # the constant 100, so the calibrated value governs in practice.
+    confidence, _rationale = calibrate_confidence(
+        answer=parsed["answer"] or "",
+        cited_references=citation_references,
+        insufficient=insufficient,
+        prior=prior,
     )
 
     logger.info(

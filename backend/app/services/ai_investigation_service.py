@@ -24,7 +24,74 @@ from sqlalchemy.orm import Session
 from app.core.logging import get_logger
 from app.database.repositories import PluginResultRepository
 from app.llm.llm_manager import LLMManager
+from app.llm.confidence import coverage_cap
 from app.llm.prompt_builder import PromptBuilder
+from app.services.question_routing import (
+    QuestionRoute,
+    SourceCoverage,
+    assess_coverage,
+    format_coverage,
+    match_route,
+)
+
+
+class RoutedPromptBuilder:
+    """
+    Prompt builder that prepends question-routing coverage to the context.
+
+    Wrapping the real builder keeps this concern out of the retrieval
+    service, which calls ``build_answer_prompt(question=..., context=...)``
+    from three separate answer paths. Only the context is extended, so
+    evidence numbering and therefore citation parsing are unaffected.
+    """
+
+    def __init__(
+        self,
+        delegate: PromptBuilder,
+        route: QuestionRoute,
+        coverage: list[SourceCoverage],
+    ) -> None:
+        self._delegate = delegate
+        self._route = route
+        self._coverage = coverage
+
+    def build_answer_prompt(self, question: str, context: str) -> str:
+
+        sections: list[str] = []
+
+        if self._route.out_of_scope:
+            sections.append(
+                "EVIDENCE COVERAGE FOR THIS QUESTION\n"
+                f"Question type: {self._route.qid} — {self._route.summary}\n\n"
+                f"OUT OF SCOPE: {self._route.out_of_scope}\n"
+                "State plainly that this platform cannot answer the question "
+                "and say what evidence would be required. Do not assemble an "
+                "answer from unrelated artifacts."
+            )
+
+        elif self._coverage:
+            sections.append(format_coverage(self._route, self._coverage))
+
+        elif self._route.synthesis:
+            sections.append(
+                "EVIDENCE COVERAGE FOR THIS QUESTION\n"
+                f"Question type: {self._route.qid} — {self._route.summary}\n\n"
+                "This question is answered by correlating evidence across "
+                "all sources rather than from one plugin. Draw only on the "
+                "evidence supplied below and state which areas it does not "
+                "cover."
+            )
+
+        if not sections:
+            return self._delegate.build_answer_prompt(
+                question=question,
+                context=context,
+            )
+
+        return self._delegate.build_answer_prompt(
+            question=question,
+            context="\n\n".join(sections) + "\n\n" + context,
+        )
 from app.llm.response_parser import ResponseParser
 from app.services.forensic_evidence_retrieval_service import (
     ForensicEvidenceRetrievalService,
@@ -184,7 +251,34 @@ class AIInvestigationService:
                 top_k,
             )
 
-        return answer_with_evidence_fallback(
+        # Route the question to its authoritative plugins, when it is one of
+        # the known question types. Retrieval is then scoped to those
+        # plugins, and the prompt is told which expected sources were
+        # actually searched so the model cannot report an unsearched source
+        # as an absence of activity.
+        route = match_route(question)
+
+        scoped_plugins: tuple[str, ...] | None = None
+        coverage: list[SourceCoverage] = []
+        prompt_builder = self._prompt_builder
+
+        if route is not None:
+
+            coverage = assess_coverage(db, investigation_id, route.plugins)
+
+            if route.plugins:
+                usable = tuple(
+                    entry.plugin for entry in coverage if entry.usable
+                )
+                scoped_plugins = usable or None
+
+            prompt_builder = RoutedPromptBuilder(
+                delegate=self._prompt_builder,
+                route=route,
+                coverage=coverage,
+            )
+
+        result = answer_with_evidence_fallback(
             investigation_id=investigation_id,
             question=question,
             top_k=top_k,
@@ -202,12 +296,26 @@ class AIInvestigationService:
                 investigation_id=investigation_id,
                 question=q,
                 top_k=k,
+                plugins=scoped_plugins,
             ),
             llm_generate=self._llm_manager.generate,
-            prompt_builder=self._prompt_builder,
+            prompt_builder=prompt_builder,
             response_parser=self._response_parser,
             lazy_index=lambda: self._maybe_lazy_index(investigation_id),
         )
+
+        # A source that was never searched ceilings the confidence, however
+        # the model phrased its assessment. Applied here rather than inside
+        # the retrieval service, which is deliberately unaware of routing.
+        if route is not None and coverage:
+            cap = coverage_cap(
+                sum(1 for entry in coverage if not entry.usable),
+                len(coverage),
+            )
+            if cap is not None and result.get("confidence") is not None:
+                result["confidence"] = min(result["confidence"], cap)
+
+        return result
 
     def answer_semantic_only(
         self,

@@ -111,15 +111,25 @@ any digits in this section.
 
 GAPS
 What is missing and what additional evidence would strengthen the answer —
-name the specific artifact or plugin type needed. Write "None." only when the
-supplied evidence fully answers the question.
+name the specific artifact or plugin type needed. If an EVIDENCE COVERAGE
+block above lists any source as UNAVAILABLE, you MUST name each of those
+sources here. Write "None." only when every expected source was searched and
+the supplied evidence fully answers the question.
 
 Then, on the final line and nowhere else, output exactly:
 CONFIDENCE: <0-100>
 
-The confidence value must reflect evidential support: high only when cited
-evidence directly answers the question, low when the answer rests on missing
-or indirect evidence.
+Calibrate that number to the certainty word you used in ASSESSMENT:
+
+  strong      -> 80-95
+  moderate    -> 50-70
+  weak        -> 25-45
+  none        -> 0-20
+
+Lower it further when an expected source was UNAVAILABLE, when the finding
+rests on indirect evidence, or when you cited nothing. Do not default to 100:
+a single memory acquisition never justifies a zero-doubt claim, and 100 is
+not a valid answer.
 
 FORENSIC EVIDENCE
 =================
