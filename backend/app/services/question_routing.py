@@ -81,6 +81,9 @@ class QuestionRoute:
     synthesis: bool = False
     # Questions that require evidence this platform does not collect.
     out_of_scope: str = ""
+    # Questions answered partly by the deterministic known-tool scan
+    # (app/services/tool_signatures.py) rather than by retrieval alone.
+    tool_scan: bool = False
     required_terms: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -263,8 +266,10 @@ ROUTES: tuple[QuestionRoute, ...] = (
         keywords=(
             "remote access", "lateral movement", "anydesk", "psexec",
             "rdp", "winscp", "rclone", "nmap", "angry ip",
-            "administration tool", "remote execution",
+            "administration tool", "remote execution", "teamviewer",
+            "remote desktop", "tunnel", "ngrok", "known tool",
         ),
+        tool_scan=True,
     ),
     QuestionRoute(
         qid="Q16",

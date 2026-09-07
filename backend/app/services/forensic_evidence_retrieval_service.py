@@ -641,6 +641,7 @@ class ForensicEvidenceRetrievalService:
         question: str,
         top_k: int = FALLBACK_TOP_K,
         plugins: tuple[str, ...] | None = None,
+        pinned_ids: tuple[int, ...] | None = None,
     ) -> list[dict]:
         """
         Retrieve the most relevant evidence records for a question.
@@ -663,6 +664,14 @@ class ForensicEvidenceRetrievalService:
             the whole corpus. Falls back to the normal intent dispatch when
             the scoped query returns nothing.
 
+        pinned_ids : tuple[int, ...] | None
+            Evidence rows to place at the head of the result. Used by the
+            deterministic tool-signature scan, whose matches would otherwise
+            be ranked out of the sample: the WinRAR row that scan identifies
+            is one low-risk record among 22,814 from ``filescan``, so without
+            pinning the model is told a tool was found but has no numbered
+            evidence to cite for it.
+
         Returns
         -------
         list[dict]
@@ -671,23 +680,31 @@ class ForensicEvidenceRetrievalService:
 
         limit = max(1, min(int(top_k), FALLBACK_QUERY_LIMIT))
 
+        pinned: list[PluginResult] = (
+            self._fetch_by_ids(session, investigation_id, pinned_ids, limit)
+            if pinned_ids
+            else []
+        )
+
         if plugins:
 
             scoped = self._fetch_by_plugins(
                 session, investigation_id, plugins, limit
             )
 
-            if scoped:
+            if scoped or pinned:
+                merged = self._merge_pinned(pinned, scoped, top_k)
                 logger.info(
                     "[CHAT] Routed retrieval matched %d records from %s "
-                    "for '%s'.",
+                    "for '%s' (%d pinned).",
                     len(scoped),
                     ", ".join(plugins),
                     investigation_id,
+                    len(pinned),
                 )
                 return [
                     self._to_match(record, investigation_id)
-                    for record in scoped[:top_k]
+                    for record in merged
                 ]
 
             logger.info(
@@ -966,6 +983,58 @@ class ForensicEvidenceRetrievalService:
         ordered = [merged[record_id] for record_id in sorted(merged)]
 
         return ordered[:limit]
+
+    def _fetch_by_ids(
+        self,
+        session: Session,
+        investigation_id: str,
+        identifiers: tuple[int, ...],
+        limit: int,
+    ) -> list[PluginResult]:
+        """
+        Fetch specific evidence rows, scoped to the investigation.
+
+        The investigation scope is applied here rather than trusted from the
+        caller, so an identifier from elsewhere cannot pull another case's
+        evidence into this answer.
+        """
+
+        if not identifiers:
+            return []
+
+        statement = (
+            self._scoped_select(session, investigation_id)
+            .where(PluginResult.id.in_(tuple(identifiers)[:limit]))
+        )
+
+        found = {record.id: record for record in session.scalars(statement)}
+
+        # Preserve the caller's ordering, which is significance-ordered.
+        return [
+            found[identifier]
+            for identifier in identifiers
+            if identifier in found
+        ]
+
+    @staticmethod
+    def _merge_pinned(
+        pinned: list[PluginResult],
+        scoped: list[PluginResult],
+        top_k: int,
+    ) -> list[PluginResult]:
+        """Place pinned rows first, then fill from the ranked results."""
+
+        merged = list(pinned)
+        seen = {record.id for record in merged}
+
+        for record in scoped:
+            if len(merged) >= top_k:
+                break
+            if record.id not in seen:
+                merged.append(record)
+                seen.add(record.id)
+
+        return merged[:top_k]
 
     def _fetch_by_plugins(
         self,

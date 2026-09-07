@@ -26,6 +26,7 @@ from app.database.repositories import PluginResultRepository
 from app.llm.llm_manager import LLMManager
 from app.llm.confidence import coverage_cap
 from app.llm.prompt_builder import PromptBuilder
+from app.services.tool_signatures import format_tool_matches, match_tools
 from app.services.question_routing import (
     QuestionRoute,
     SourceCoverage,
@@ -50,10 +51,12 @@ class RoutedPromptBuilder:
         delegate: PromptBuilder,
         route: QuestionRoute,
         coverage: list[SourceCoverage],
+        tool_block: str = "",
     ) -> None:
         self._delegate = delegate
         self._route = route
         self._coverage = coverage
+        self._tool_block = tool_block
 
     def build_answer_prompt(self, question: str, context: str) -> str:
 
@@ -70,6 +73,8 @@ class RoutedPromptBuilder:
             )
 
         elif self._coverage:
+            if self._tool_block:
+                sections.append(self._tool_block)
             sections.append(format_coverage(self._route, self._coverage))
 
         elif self._route.synthesis:
@@ -260,6 +265,8 @@ class AIInvestigationService:
 
         scoped_plugins: tuple[str, ...] | None = None
         coverage: list[SourceCoverage] = []
+        pinned_ids: tuple[int, ...] = ()
+        tool_block = ""
         prompt_builder = self._prompt_builder
 
         if route is not None:
@@ -272,10 +279,23 @@ class AIInvestigationService:
                 )
                 scoped_plugins = usable or None
 
+            if route.tool_scan:
+                matches = match_tools(db, investigation_id)
+                tool_block = format_tool_matches(matches)
+                # Pin the matched rows so the scan's findings arrive as
+                # numbered, citable evidence rather than an unsupportable
+                # assertion in the preamble.
+                pinned_ids = tuple(
+                    identifier
+                    for entry in matches
+                    for identifier in entry.evidence_ids[:3]
+                )
+
             prompt_builder = RoutedPromptBuilder(
                 delegate=self._prompt_builder,
                 route=route,
                 coverage=coverage,
+                tool_block=tool_block,
             )
 
         result = answer_with_evidence_fallback(
@@ -297,6 +317,7 @@ class AIInvestigationService:
                 question=q,
                 top_k=k,
                 plugins=scoped_plugins,
+                pinned_ids=pinned_ids,
             ),
             llm_generate=self._llm_manager.generate,
             prompt_builder=prompt_builder,
