@@ -216,3 +216,27 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ==============================================================================
+# FIA runtime artifacts
+# ==============================================================================
+# Generated at runtime or by an investigation; never source. Note that
+# storage/database/fia.db and storage/vectors/ are already tracked from
+# earlier commits — adding rules here does not untrack them, and removing
+# them from version control is a separate decision (see docs/02, §8).
+
+# Application logs
+backend/logs/
+
+# Scratch space for plugin execution (temp plugin output, compiled YARA rules)
+backend/storage/temp/
+
+# Database backups taken before destructive operations
+*.db.bak*
+
+# Quarantined vector stores kept for post-mortem after corruption
+backend/storage/vectors.corrupt-*/
+
+# Memory dumps. These are evidence, often tens of gigabytes, and must never
+# enter version control.
+backend/storage/uploads/
