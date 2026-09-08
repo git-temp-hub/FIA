@@ -26,6 +26,13 @@ from app.database.repositories import PluginResultRepository
 from app.llm.llm_manager import LLMManager
 from app.llm.confidence import coverage_cap
 from app.llm.prompt_builder import PromptBuilder
+from app.services.incident_synthesis import (
+    MAX_TIMELINE_EVENTS,
+    build_overview,
+    build_timeline,
+    format_overview,
+    format_timeline,
+)
 from app.services.ioc_matching import (
     format_missing_indicator_set,
     format_network_scan,
@@ -67,6 +74,7 @@ class RoutedPromptBuilder:
         tool_block: str = "",
         signature_block: str = "",
         ioc_block: str = "",
+        synthesis_blocks: list[str] | None = None,
     ) -> None:
         self._delegate = delegate
         self._route = route
@@ -74,6 +82,7 @@ class RoutedPromptBuilder:
         self._tool_block = tool_block
         self._signature_block = signature_block
         self._ioc_block = ioc_block
+        self._synthesis_blocks = synthesis_blocks or []
 
     def build_answer_prompt(self, question: str, context: str) -> str:
 
@@ -89,24 +98,22 @@ class RoutedPromptBuilder:
                 "answer from unrelated artifacts."
             )
 
-        elif self._coverage:
+        else:
+            # Sequential rather than exclusive: a synthesis question carries
+            # its own blocks and a coverage report, and Q12 carries both an
+            # indicator block and a signature block.
+            if self._synthesis_blocks:
+                sections.extend(self._synthesis_blocks)
             if self._ioc_block:
                 sections.append(self._ioc_block)
             if self._tool_block:
                 sections.append(self._tool_block)
             if self._signature_block:
                 sections.append(self._signature_block)
-            sections.append(format_coverage(self._route, self._coverage))
-
-        elif self._route.synthesis:
-            sections.append(
-                "EVIDENCE COVERAGE FOR THIS QUESTION\n"
-                f"Question type: {self._route.qid} — {self._route.summary}\n\n"
-                "This question is answered by correlating evidence across "
-                "all sources rather than from one plugin. Draw only on the "
-                "evidence supplied below and state which areas it does not "
-                "cover."
-            )
+            if self._coverage:
+                sections.append(
+                    format_coverage(self._route, self._coverage)
+                )
 
         if not sections:
             return self._delegate.build_answer_prompt(
@@ -130,6 +137,11 @@ from app.services.forensic_evidence_retrieval_service import (
 from app.services.rag.rag_pipeline import RAGPipeline, rag_pipeline
 
 logger = get_logger(__name__)
+
+# A synthesis answer needs breadth across plugins, not depth in one. Sized
+# to leave room for the overview and timeline blocks inside the 8192-token
+# context window.
+SYNTHESIS_TOP_K = 14
 
 
 class AIInvestigationService:
@@ -290,6 +302,7 @@ class AIInvestigationService:
         tool_block = ""
         signature_block = ""
         signature_assessment = None
+        synthesis_blocks: list[str] = []
         ioc_block = ""
         prompt_builder = self._prompt_builder
 
@@ -321,6 +334,16 @@ class AIInvestigationService:
                 )
                 pinned_ids = pinned_ids + ioc_ids
 
+            if route.synthesis:
+                synthesis_blocks, breadth = self._build_synthesis(
+                    db, investigation_id
+                )
+                # A whole-incident conclusion cannot rest on six rows from
+                # one plugin: retrieval is widened across every plugin that
+                # produced evidence.
+                scoped_plugins = breadth or scoped_plugins
+                top_k = max(top_k, SYNTHESIS_TOP_K)
+
             if route.signature_check:
                 signature_assessment = assess_signature_matches(
                     db, investigation_id
@@ -334,6 +357,7 @@ class AIInvestigationService:
                 tool_block=tool_block,
                 signature_block=signature_block,
                 ioc_block=ioc_block,
+                synthesis_blocks=synthesis_blocks,
             )
 
         result = answer_with_evidence_fallback(
@@ -432,6 +456,52 @@ class AIInvestigationService:
         # connection is one row among hundreds and would not otherwise rank
         # into the retrieved sample.
         return format_network_scan(scan), scan.evidence_ids[:6]
+
+    # ------------------------------------------------------------------
+    # Integrated assessment
+    # ------------------------------------------------------------------
+
+    def _build_synthesis(
+        self,
+        db: Session,
+        investigation_id: str,
+    ) -> tuple[list[str], tuple[str, ...]]:
+        """
+        Build the corpus overview and timeline for an integrated assessment.
+
+        Returns the prompt blocks and the plugins that actually produced
+        evidence, so retrieval can be widened across all of them.
+        """
+
+        overview = build_overview(db, investigation_id)
+        timeline = build_timeline(db, investigation_id)
+
+        blocks = [
+            format_overview(overview),
+            format_timeline(timeline, MAX_TIMELINE_EVENTS),
+            (
+                "HOW TO ANSWER THIS QUESTION\n"
+                "This is an integrated assessment, not a single-artifact "
+                "lookup. Use the CORPUS OVERVIEW for any statement about "
+                "scale -- those counts are exact and cover every record, "
+                "whereas the numbered evidence below is a sample. Use the "
+                "INCIDENT TIMELINE for ordering, and do not assert a sequence "
+                "the timeline does not show.\n\n"
+                "Write FINDING as a short narrative of what the evidence "
+                "supports, in order where order is known. Keep the four "
+                "sections and the final CONFIDENCE line exactly as specified. "
+                "Cite records for specific claims; cite nothing for the "
+                "overview counts and say they come from the corpus "
+                "overview.\n\n"
+                "A conclusion of 'no malicious activity' is a strong claim "
+                "about the whole host. Make it only if the overview and "
+                "timeline support it, and state which areas were not "
+                "examined. Equally, do not escalate: a large count in one "
+                "plugin is not by itself an incident."
+            ),
+        ]
+
+        return blocks, overview.completed_plugins
 
     def answer_semantic_only(
         self,
