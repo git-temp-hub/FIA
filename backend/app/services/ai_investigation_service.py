@@ -26,6 +26,12 @@ from app.database.repositories import PluginResultRepository
 from app.llm.llm_manager import LLMManager
 from app.llm.confidence import coverage_cap
 from app.llm.prompt_builder import PromptBuilder
+from app.services.signature_corroboration import (
+    assess_signature_matches,
+    confidence_ceiling as signature_ceiling,
+    corroboration_notice,
+    format_corroboration,
+)
 from app.services.tool_signatures import format_tool_matches, match_tools
 from app.services.question_routing import (
     QuestionRoute,
@@ -52,11 +58,13 @@ class RoutedPromptBuilder:
         route: QuestionRoute,
         coverage: list[SourceCoverage],
         tool_block: str = "",
+        signature_block: str = "",
     ) -> None:
         self._delegate = delegate
         self._route = route
         self._coverage = coverage
         self._tool_block = tool_block
+        self._signature_block = signature_block
 
     def build_answer_prompt(self, question: str, context: str) -> str:
 
@@ -75,6 +83,8 @@ class RoutedPromptBuilder:
         elif self._coverage:
             if self._tool_block:
                 sections.append(self._tool_block)
+            if self._signature_block:
+                sections.append(self._signature_block)
             sections.append(format_coverage(self._route, self._coverage))
 
         elif self._route.synthesis:
@@ -267,6 +277,8 @@ class AIInvestigationService:
         coverage: list[SourceCoverage] = []
         pinned_ids: tuple[int, ...] = ()
         tool_block = ""
+        signature_block = ""
+        signature_assessment = None
         prompt_builder = self._prompt_builder
 
         if route is not None:
@@ -291,11 +303,18 @@ class AIInvestigationService:
                     for identifier in entry.evidence_ids[:3]
                 )
 
+            if route.signature_check:
+                signature_assessment = assess_signature_matches(
+                    db, investigation_id
+                )
+                signature_block = format_corroboration(signature_assessment)
+
             prompt_builder = RoutedPromptBuilder(
                 delegate=self._prompt_builder,
                 route=route,
                 coverage=coverage,
                 tool_block=tool_block,
+                signature_block=signature_block,
             )
 
         result = answer_with_evidence_fallback(
@@ -325,16 +344,35 @@ class AIInvestigationService:
             lazy_index=lambda: self._maybe_lazy_index(investigation_id),
         )
 
-        # A source that was never searched ceilings the confidence, however
-        # the model phrased its assessment. Applied here rather than inside
-        # the retrieval service, which is deliberately unaware of routing.
+        # Confidence ceilings enforced after the answer is produced, so they
+        # hold whatever the model wrote. Applied here rather than inside the
+        # retrieval service, which is deliberately unaware of routing.
+        ceilings: list[int] = []
+
+        # A source that was never searched cannot support a confident answer.
         if route is not None and coverage:
             cap = coverage_cap(
                 sum(1 for entry in coverage if not entry.usable),
                 len(coverage),
             )
-            if cap is not None and result.get("confidence") is not None:
-                result["confidence"] = min(result["confidence"], cap)
+            if cap is not None:
+                ceilings.append(cap)
+
+        if signature_assessment is not None:
+            # Enforced in code rather than requested in the prompt: asked to
+            # triage matches sitting inside Defender's memory, the model
+            # reported the malware as present in three of four runs at
+            # temperature 0.0.
+            cap = signature_ceiling(signature_assessment)
+            if cap is not None:
+                ceilings.append(cap)
+
+            notice = corroboration_notice(signature_assessment)
+            if notice:
+                result["answer"] = f"{result.get('answer') or ''}\n{notice}"
+
+        if ceilings and result.get("confidence") is not None:
+            result["confidence"] = min(result["confidence"], *ceilings)
 
         return result
 

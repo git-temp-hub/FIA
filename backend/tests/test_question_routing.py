@@ -127,6 +127,10 @@ def test_ran_empty_is_usable_but_unavailable_is_not():
         ("clamped to supplied evidence [4-99]", [4, 5, 6]),
         ("reversed range dropped, [5-2] and [1]", [1]),
         ("duplicates collapse [2][2][2]", [2]),
+        # The form qwen3 actually used when citing six records.
+        ("bracketed range [1]-[6]", [1, 2, 3, 4, 5, 6]),
+        ("bracketed en dash [2]–[4]", [2, 3, 4]),
+        ("bracketed spaced [1] - [3]", [1, 2, 3]),
         ("out of range ignored [0] [99]", []),
         ("no citations at all", []),
     ],

@@ -18,7 +18,7 @@ from app.services.tool_signatures import (
     ON_DISK,
     ToolMatch,
     ToolSignature,
-    _process_matches,
+    process_name_matches,
     format_tool_matches,
 )
 
@@ -28,8 +28,8 @@ from app.services.tool_signatures import (
 # ------------------------------------------------------------------
 
 def test_exact_process_name_matches():
-    assert _process_matches("anydesk.exe", "anydesk.exe")
-    assert _process_matches("AnyDesk.EXE", "anydesk.exe")
+    assert process_name_matches("anydesk.exe", "anydesk.exe")
+    assert process_name_matches("AnyDesk.EXE", "anydesk.exe")
 
 
 def test_truncated_process_name_still_matches():
@@ -38,19 +38,19 @@ def test_truncated_process_name_still_matches():
     "CodeMeterCC.exe" as "CodeMeterCC.ex". Comparing exactly against a longer
     catalogue entry silently never fires.
     """
-    assert _process_matches("advanced_ip_sc", "advanced_ip_scanner.exe")
-    assert _process_matches("screenconnect.", "screenconnect.clientservice.exe")
+    assert process_name_matches("advanced_ip_sc", "advanced_ip_scanner.exe")
+    assert process_name_matches("screenconnect.", "screenconnect.clientservice.exe")
 
 
 def test_short_prefix_does_not_match():
     """Truncation only excuses a name long enough to have filled the field."""
-    assert not _process_matches("ad", "advanced_ip_scanner.exe")
-    assert not _process_matches("sc.exe", "screenconnect.clientservice.exe")
+    assert not process_name_matches("ad", "advanced_ip_scanner.exe")
+    assert not process_name_matches("sc.exe", "screenconnect.clientservice.exe")
 
 
 def test_unrelated_names_do_not_match():
-    assert not _process_matches("svchost.exe", "anydesk.exe")
-    assert not _process_matches("", "anydesk.exe")
+    assert not process_name_matches("svchost.exe", "anydesk.exe")
+    assert not process_name_matches("", "anydesk.exe")
 
 
 def test_legitimate_oem_software_is_not_matched():
@@ -61,7 +61,7 @@ def test_legitimate_oem_software_is_not_matched():
     for observed in ("SupportAssistA", "DellSupportAss", "SupportAssistAgent.exe"):
         for tool in CATALOGUE:
             assert not any(
-                _process_matches(observed, name) for name in tool.processes
+                process_name_matches(observed, name) for name in tool.processes
             ), f"{tool.name} matched {observed}"
 
 

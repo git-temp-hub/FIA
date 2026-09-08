@@ -375,12 +375,14 @@ class ToolMatch:
         return self.tool.name
 
 
-def _process_matches(observed: str, candidate: str) -> bool:
+def process_name_matches(observed: str, candidate: str) -> bool:
     """
-    Compare a process name against a catalogue entry.
+    Compare an observed process name against a known name.
 
     ``observed`` may be truncated to the width of the fixed-size EPROCESS
     field, so a shorter observed name that prefixes the candidate counts.
+    Shared with the signature-corroboration check, which meets the same
+    truncation (``msedgewebview2`` for ``msedgewebview2.exe``).
     """
 
     left = (observed or "").strip().lower()
@@ -473,7 +475,7 @@ def match_tools(
 
             for tool in CATALOGUE:
                 if any(
-                    _process_matches(observed, name)
+                    process_name_matches(observed, name)
                     for name in tool.processes
                 ):
                     record(
@@ -494,7 +496,7 @@ def match_tools(
         for tool in CATALOGUE:
 
             if any(
-                _process_matches(process, name) for name in tool.processes
+                process_name_matches(process, name) for name in tool.processes
             ):
                 record(
                     tool,
@@ -640,4 +642,5 @@ __all__ = [
     "ToolSignature",
     "format_tool_matches",
     "match_tools",
+    "process_name_matches",
 ]

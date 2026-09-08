@@ -37,6 +37,14 @@ _CITATION_PATTERN = re.compile(
 
 _RANGE_SEPARATORS = ("-", "–", "—")
 
+# "[1]-[6]" is the same claim as "[1-6]" but written as two bracket groups
+# joined by a dash. Left alone it parses as exactly two citations, so an
+# answer citing six records reports two — which then feeds the confidence
+# calibration as if the answer were barely supported.
+_BRACKETED_RANGE_PATTERN = re.compile(
+    r"\[(\d+)\]\s*[-–—]\s*\[(\d+)\]"
+)
+
 
 class ResponseParser:
     """
@@ -97,7 +105,11 @@ class ResponseParser:
 
         citations: list[int] = []
 
-        for group in _CITATION_PATTERN.findall(text):
+        # Normalised for citation scanning only; the answer text keeps the
+        # form the model wrote.
+        scannable = _BRACKETED_RANGE_PATTERN.sub(r"[\1-\2]", text)
+
+        for group in _CITATION_PATTERN.findall(scannable):
 
             for part in group.split(","):
 

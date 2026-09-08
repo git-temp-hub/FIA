@@ -84,6 +84,9 @@ class QuestionRoute:
     # Questions answered partly by the deterministic known-tool scan
     # (app/services/tool_signatures.py) rather than by retrieval alone.
     tool_scan: bool = False
+    # Questions whose answer rests on YARA matches, and which therefore need
+    # the corroboration check in app/services/signature_corroboration.py.
+    signature_check: bool = False
     required_terms: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -218,6 +221,7 @@ ROUTES: tuple[QuestionRoute, ...] = (
             "privilege escalation", "token manipulation",
             "credential dumping", "sekurlsa",
         ),
+        signature_check=True,
     ),
     QuestionRoute(
         qid="Q12",
@@ -230,6 +234,7 @@ ROUTES: tuple[QuestionRoute, ...] = (
             "apt28", "fancy bear", "tunnel implant", "implant",
             "attribution", "threat actor",
         ),
+        signature_check=True,
     ),
     QuestionRoute(
         qid="Q13",
@@ -242,6 +247,7 @@ ROUTES: tuple[QuestionRoute, ...] = (
             "coinminer", "cryptomining", "crypto mining", "miner",
             "xmrig", "stratum", "mining pool", "wallet",
         ),
+        signature_check=True,
     ),
     QuestionRoute(
         qid="Q14",
@@ -283,6 +289,7 @@ ROUTES: tuple[QuestionRoute, ...] = (
             "beacon", "post-exploitation", "offensive security",
             "c2 framework", "loader",
         ),
+        signature_check=True,
     ),
     QuestionRoute(
         qid="Q17",
@@ -305,6 +312,7 @@ ROUTES: tuple[QuestionRoute, ...] = (
             "yara", "signature match", "rule match", "malware triage",
             "signature triage",
         ),
+        signature_check=True,
     ),
     QuestionRoute(
         qid="Q19",
