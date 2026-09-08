@@ -87,6 +87,12 @@ class QuestionRoute:
     # Questions whose answer rests on YARA matches, and which therefore need
     # the corroboration check in app/services/signature_corroboration.py.
     signature_check: bool = False
+    # Questions answered by exact address correlation against indicators the
+    # investigator or the department supplied.
+    ioc_check: bool = False
+    # Attribution questions requiring a named actor's indicator set. Named
+    # here rather than guessed at: no such list ships with the platform.
+    requires_indicator_set: str = ""
     required_terms: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -165,8 +171,10 @@ ROUTES: tuple[QuestionRoute, ...] = (
         plugins=("windows.netscan", "windows.netstat"),
         keywords=(
             "109.21.12", "malicious range", "known malicious ip",
-            "ioc", "infrastructure",
+            "ioc", "infrastructure", "ip range", "cidr",
+            "indicator of compromise",
         ),
+        ioc_check=True,
     ),
     QuestionRoute(
         qid="Q8",
@@ -235,6 +243,8 @@ ROUTES: tuple[QuestionRoute, ...] = (
             "attribution", "threat actor",
         ),
         signature_check=True,
+        ioc_check=True,
+        requires_indicator_set="APT28",
     ),
     QuestionRoute(
         qid="Q13",

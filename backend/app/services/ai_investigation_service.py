@@ -26,6 +26,13 @@ from app.database.repositories import PluginResultRepository
 from app.llm.llm_manager import LLMManager
 from app.llm.confidence import coverage_cap
 from app.llm.prompt_builder import PromptBuilder
+from app.services.ioc_matching import (
+    format_missing_indicator_set,
+    format_network_scan,
+    load_indicator_sets,
+    match_networks,
+    networks_in_question,
+)
 from app.services.signature_corroboration import (
     assess_signature_matches,
     confidence_ceiling as signature_ceiling,
@@ -59,12 +66,14 @@ class RoutedPromptBuilder:
         coverage: list[SourceCoverage],
         tool_block: str = "",
         signature_block: str = "",
+        ioc_block: str = "",
     ) -> None:
         self._delegate = delegate
         self._route = route
         self._coverage = coverage
         self._tool_block = tool_block
         self._signature_block = signature_block
+        self._ioc_block = ioc_block
 
     def build_answer_prompt(self, question: str, context: str) -> str:
 
@@ -81,6 +90,8 @@ class RoutedPromptBuilder:
             )
 
         elif self._coverage:
+            if self._ioc_block:
+                sections.append(self._ioc_block)
             if self._tool_block:
                 sections.append(self._tool_block)
             if self._signature_block:
@@ -279,6 +290,7 @@ class AIInvestigationService:
         tool_block = ""
         signature_block = ""
         signature_assessment = None
+        ioc_block = ""
         prompt_builder = self._prompt_builder
 
         if route is not None:
@@ -303,6 +315,12 @@ class AIInvestigationService:
                     for identifier in entry.evidence_ids[:3]
                 )
 
+            if route.ioc_check:
+                ioc_block, ioc_ids = self._correlate_indicators(
+                    db, investigation_id, question, route
+                )
+                pinned_ids = pinned_ids + ioc_ids
+
             if route.signature_check:
                 signature_assessment = assess_signature_matches(
                     db, investigation_id
@@ -315,6 +333,7 @@ class AIInvestigationService:
                 coverage=coverage,
                 tool_block=tool_block,
                 signature_block=signature_block,
+                ioc_block=ioc_block,
             )
 
         result = answer_with_evidence_fallback(
@@ -375,6 +394,44 @@ class AIInvestigationService:
             result["confidence"] = min(result["confidence"], *ceilings)
 
         return result
+
+    # ------------------------------------------------------------------
+    # Indicator correlation
+    # ------------------------------------------------------------------
+
+    def _correlate_indicators(
+        self,
+        db: Session,
+        investigation_id: str,
+        question: str,
+        route: QuestionRoute,
+    ) -> tuple[str, tuple[int, ...]]:
+        """
+        Correlate collected network evidence against supplied indicators.
+
+        Indicators come from the investigator's question and from
+        department-supplied sets. When a route names an actor whose set has
+        not been supplied, attribution is refused rather than guessed at.
+        """
+
+        networks = list(networks_in_question(question))
+        supplied = load_indicator_sets()
+
+        for indicator_set in supplied:
+            networks.extend(indicator_set.networks)
+
+        if route.requires_indicator_set and not supplied:
+            return (
+                format_missing_indicator_set(route.requires_indicator_set),
+                (),
+            )
+
+        scan = match_networks(db, investigation_id, tuple(networks))
+
+        # Matching rows are pinned so the addresses are citable: a matched
+        # connection is one row among hundreds and would not otherwise rank
+        # into the retrieved sample.
+        return format_network_scan(scan), scan.evidence_ids[:6]
 
     def answer_semantic_only(
         self,
