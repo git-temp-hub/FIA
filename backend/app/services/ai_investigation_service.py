@@ -33,6 +33,7 @@ from app.services.incident_synthesis import (
     format_overview,
     format_timeline,
 )
+from app.services.memory_region_context import malfind_ceiling
 from app.services.ioc_matching import (
     format_missing_indicator_set,
     format_network_scan,
@@ -400,6 +401,14 @@ class AIInvestigationService:
             )
             if cap is not None:
                 ceilings.append(cap)
+
+        # An answer resting only on mapped (JIT-typical) malfind regions is
+        # not a confident detection, however the row is labelled. Read from
+        # the cited references so it applies on every path, routed or not.
+        malfind_cap = malfind_ceiling(result.get("citations") or [])
+
+        if malfind_cap is not None:
+            ceilings.append(malfind_cap)
 
         if signature_assessment is not None:
             # Enforced in code rather than requested in the prompt: asked to

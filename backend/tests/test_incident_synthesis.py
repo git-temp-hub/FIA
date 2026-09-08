@@ -84,17 +84,16 @@ def test_distinct_events_are_preserved():
 # Timeline rendering
 # ------------------------------------------------------------------
 
-def test_timeline_record_ids_are_not_bracketed():
+def test_timeline_carries_no_citable_identifier():
     """
-    Rendering these as "[evidence 32]" taught the model to cite database
-    identifiers as citation numbers: it emitted "[20224]", outside the
-    numbered range, which was silently dropped and left the answer far less
-    supported than it looked.
+    Rendered as "[evidence 32]" these taught the model to cite database
+    identifiers as citation numbers; rendered as "(record #32)" with an
+    instruction never to bracket them, it still emitted "[20226]", leaving
+    that claim uncited. The number is gone, so the failure mode is too.
     """
     block = format_timeline([_event("windows.pslist", 20224)], limit=40)
-    assert "[20224]" not in block
-    assert "record #20224" in block
-    assert "NOT citation numbers" in block
+    assert "20224" not in block
+    assert "not themselves citable" in block
 
 
 def test_timeline_states_malfind_is_absent_and_why():

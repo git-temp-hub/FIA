@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.logging import get_logger
 from app.llm.confidence import calibrate as calibrate_confidence
+from app.services.memory_region_context import annotate_region
 from app.models.memory_dump import MemoryDump
 from app.models.plugin_execution import PluginExecution
 from app.models.plugin_result import PluginResult
@@ -612,6 +613,12 @@ def build_evidence_document(
             else:
                 rendered = str(value)
             lines.append(f"{key}: {rendered}")
+
+    # Attached to the row rather than stated in the preamble. Told in the
+    # prompt that 8,856 of 8,912 malfind regions were mapped, the model still
+    # reported a mapped region as "potential malicious code injection": a
+    # qualification several blocks away loses to a row labelled high severity.
+    lines.extend(annotate_region(artifact_type, attributes))
 
     return "\n".join(lines)
 

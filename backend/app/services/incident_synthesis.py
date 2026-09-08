@@ -565,21 +565,20 @@ def format_timeline(events: list[TimelineEvent], limit: int) -> str:
             if len(event.sources) > 1
             else ""
         )
-        # Deliberately not in square brackets. Rendering these as
-        # "[evidence 32]" taught the model to cite database identifiers as
-        # though they were citation numbers: it emitted "[20224]", which is
-        # outside the numbered evidence range and was silently dropped,
-        # leaving the answer far less supported than it appeared.
+        # No identifier at all. Rendered as "[evidence 32]" these taught the
+        # model to cite database identifiers as citation numbers; rendered as
+        # "(record #32)" alongside an instruction never to bracket them, it
+        # still emitted "[20226]", leaving that claim uncited. Removing the
+        # number removes the failure mode, which beats instructing against it.
         lines.append(
-            f"  {event.timestamp}  {event.description}"
-            f"  (record #{event.evidence_id}){corroboration}"
+            f"  {event.timestamp}  {event.description}{corroboration}"
         )
 
     lines.append("")
     lines.append(
-        "The \"record #\" values above are database identifiers, NOT citation "
-        "numbers. Never write them in square brackets. Cite only the numbered "
-        "evidence blocks supplied further below."
+        "Timeline entries carry no citation number and are not themselves "
+        "citable. Use them for ordering, and cite the numbered evidence "
+        "blocks supplied further below for specific claims."
     )
     lines.append(
         "Process start times and connection times come from memory "
