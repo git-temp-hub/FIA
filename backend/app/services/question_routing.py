@@ -93,6 +93,17 @@ class QuestionRoute:
     # Attribution questions requiring a named actor's indicator set. Named
     # here rather than guessed at: no such list ships with the platform.
     requires_indicator_set: str = ""
+    # Concrete tokens worth preferring within the scoped plugins. Routing to
+    # the right plugin is not enough: inside it, rows are ordered by risk then
+    # id, and where every row is low risk the id order wins. Q3 was answered
+    # from PIDs 4, 204 and 236 and reported that no process was LSASS, while
+    # lsass.exe (PID 1636) sat unretrieved in the same table.
+    #
+    # Listed explicitly rather than inferred from the question text, because
+    # inference both misses and over-reaches: it fails to find "LSASS",
+    # "Chrome" and "Cobalt Strike", and treats the bare word "malware" in Q10
+    # and Q18 as a process name, matching any row that happens to contain it.
+    entities: tuple[str, ...] = field(default_factory=tuple)
     required_terms: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -135,6 +146,9 @@ ROUTES: tuple[QuestionRoute, ...] = (
             "lsass", "credential access", "credential dump",
             "credential theft", "lsass access",
         ),
+        entities=(
+            "lsass", "lsass.exe", "lsaiso",
+        ),
     ),
     QuestionRoute(
         qid="Q4",
@@ -144,6 +158,10 @@ ROUTES: tuple[QuestionRoute, ...] = (
             "powershell", "cmd.exe", "wmi", "script", "encoded command",
             "-enc", "iex", "download cradle", "lolbin", "command execution",
             "command line",
+        ),
+        entities=(
+            "powershell", "cmd.exe", "wmic", "cscript", "wscript",
+            "mshta", "rundll32", "regsvr32", "-enc", "encodedcommand",
         ),
     ),
     QuestionRoute(
@@ -186,6 +204,10 @@ ROUTES: tuple[QuestionRoute, ...] = (
         keywords=(
             "headless", "chrome", "chromedriver", "remote-debugging",
             "browser automation", "selenium", "puppeteer",
+        ),
+        entities=(
+            "chrome", "chromedriver", "msedge", "headless",
+            "remote-debugging", "selenium", "puppeteer",
         ),
     ),
     QuestionRoute(
@@ -230,6 +252,10 @@ ROUTES: tuple[QuestionRoute, ...] = (
             "credential dumping", "sekurlsa",
         ),
         signature_check=True,
+        entities=(
+            "mimikatz", "sekurlsa", "potato", "juicypotato",
+            "rottenpotato", "lsass",
+        ),
     ),
     QuestionRoute(
         qid="Q12",
@@ -258,6 +284,9 @@ ROUTES: tuple[QuestionRoute, ...] = (
             "xmrig", "stratum", "mining pool", "wallet",
         ),
         signature_check=True,
+        entities=(
+            "xmrig", "stratum", "coinminer", "monero", "minerd", "wallet",
+        ),
     ),
     QuestionRoute(
         qid="Q14",
@@ -270,6 +299,10 @@ ROUTES: tuple[QuestionRoute, ...] = (
             "persistence", "autorun", "run key", "runonce",
             "scheduled task", "startup", "service", "survive reboot",
             "wmi persistence",
+        ),
+        entities=(
+            "currentversion\\run", "runonce", "\\run", "services",
+            "schedule", "startup",
         ),
     ),
     QuestionRoute(
@@ -300,6 +333,9 @@ ROUTES: tuple[QuestionRoute, ...] = (
             "c2 framework", "loader",
         ),
         signature_check=True,
+        entities=(
+            "cobalt", "beacon", "meterpreter", "metasploit", "artifact",
+        ),
     ),
     QuestionRoute(
         qid="Q17",
@@ -334,6 +370,9 @@ ROUTES: tuple[QuestionRoute, ...] = (
         keywords=(
             "compromised account", "unauthorized access", "account",
             "privilege context", "logon", "sid", "user account",
+        ),
+        entities=(
+            "administrator", "s-1-5-32-544", "s-1-5-18", "admin",
         ),
     ),
     QuestionRoute(

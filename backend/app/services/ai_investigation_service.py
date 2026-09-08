@@ -303,6 +303,7 @@ class AIInvestigationService:
         tool_block = ""
         signature_block = ""
         signature_assessment = None
+        entities: tuple[str, ...] = ()
         synthesis_blocks: list[str] = []
         ioc_block = ""
         prompt_builder = self._prompt_builder
@@ -310,6 +311,8 @@ class AIInvestigationService:
         if route is not None:
 
             coverage = assess_coverage(db, investigation_id, route.plugins)
+
+            entities = route.entities
 
             if route.plugins:
                 usable = tuple(
@@ -381,6 +384,7 @@ class AIInvestigationService:
                 top_k=k,
                 plugins=scoped_plugins,
                 pinned_ids=pinned_ids,
+                entities=entities,
             ),
             llm_generate=self._llm_manager.generate,
             prompt_builder=prompt_builder,

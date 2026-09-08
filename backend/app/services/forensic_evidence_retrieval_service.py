@@ -649,6 +649,7 @@ class ForensicEvidenceRetrievalService:
         top_k: int = FALLBACK_TOP_K,
         plugins: tuple[str, ...] | None = None,
         pinned_ids: tuple[int, ...] | None = None,
+        entities: tuple[str, ...] = (),
     ) -> list[dict]:
         """
         Retrieve the most relevant evidence records for a question.
@@ -670,6 +671,10 @@ class ForensicEvidenceRetrievalService:
             question rather than from whichever records rank highest across
             the whole corpus. Falls back to the normal intent dispatch when
             the scoped query returns nothing.
+
+        entities : tuple[str, ...]
+            Tokens the question is actually about, preferred within the
+            scoped plugins. See ``_fetch_by_plugins``.
 
         pinned_ids : tuple[int, ...] | None
             Evidence rows to place at the head of the result. Used by the
@@ -696,7 +701,7 @@ class ForensicEvidenceRetrievalService:
         if plugins:
 
             scoped = self._fetch_by_plugins(
-                session, investigation_id, plugins, limit
+                session, investigation_id, plugins, limit, entities
             )
 
             if scoped or pinned:
@@ -1049,6 +1054,7 @@ class ForensicEvidenceRetrievalService:
         investigation_id: str,
         plugins: tuple[str, ...],
         limit: int,
+        entities: tuple[str, ...] = (),
     ) -> list[PluginResult]:
         """
         Fetch evidence produced by specific plugins, most significant first.
@@ -1059,6 +1065,14 @@ class ForensicEvidenceRetrievalService:
         investigation roughly 39% of all evidence — so ranking them last
         keeps them available as corroboration without letting them crowd out
         the records that actually answer the question.
+
+        ``entities`` names tokens the question is actually about. Risk order
+        alone is not enough inside a plugin: where every row is low risk the
+        id order decides, so the LSASS question was answered from PIDs 4, 204
+        and 236 and reported that no process was LSASS, while lsass.exe
+        (PID 1636) sat unretrieved in the same table. Rows matching an entity
+        lead their plugin's contribution; the rest follow in risk order, so
+        this reprioritises the sample without narrowing it.
         """
 
         risk_rank = case(
@@ -1076,16 +1090,47 @@ class ForensicEvidenceRetrievalService:
         # the others as having produced nothing.
         per_plugin: list[list[PluginResult]] = []
 
+        lowered_value = func.lower(PluginResult.artifact_value)
+
+        entity_conditions = [
+            lowered_value.like(
+                "%{0}%".format(
+                    token.lower().replace("%", r"\%").replace("_", r"\_")
+                ),
+                escape="\\",
+            )
+            for token in entities
+            if token
+        ]
+
         for plugin in plugins:
 
-            statement = (
+            base = (
                 self._scoped_select(session, investigation_id)
                 .where(PluginExecution.plugin_name == plugin)
                 .order_by(risk_rank, PluginResult.id.asc())
-                .limit(max(limit, FALLBACK_QUERY_LIMIT))
             )
 
-            found = list(session.scalars(statement).all())
+            preferred: list[PluginResult] = []
+
+            if entity_conditions:
+                preferred = list(
+                    session.scalars(
+                        base.where(or_(*entity_conditions)).limit(limit)
+                    ).all()
+                )
+
+            seen = {record.id for record in preferred}
+
+            remainder = [
+                record
+                for record in session.scalars(
+                    base.limit(max(limit, FALLBACK_QUERY_LIMIT))
+                ).all()
+                if record.id not in seen
+            ]
+
+            found = preferred + remainder
 
             if found:
                 per_plugin.append(found)

@@ -152,3 +152,47 @@ def test_confidence_line_is_stripped_from_the_answer_body():
     )
     assert "CONFIDENCE" not in parsed["answer"]
     assert parsed["citations"] == [1]
+
+
+# ------------------------------------------------------------------
+# Entity preference within scoped plugins
+# ------------------------------------------------------------------
+
+def test_entity_bearing_routes_declare_their_tokens():
+    """
+    Routing to the right plugin is not enough. Inside it rows are ordered by
+    risk then id, and where every row is low risk the id order decides: Q3 was
+    answered from PIDs 4, 204 and 236 and reported that no process was LSASS,
+    while lsass.exe (PID 1636) sat unretrieved in the same table.
+    """
+    expected = {"Q3", "Q4", "Q8", "Q11", "Q13", "Q14", "Q16", "Q19"}
+    declared = {route.qid for route in ROUTES if route.entities}
+    assert declared == expected
+
+
+def test_lsass_question_declares_lsass():
+    route = next(entry for entry in ROUTES if entry.qid == "Q3")
+    assert "lsass" in route.entities
+
+
+def test_entities_are_lowercase_for_case_insensitive_matching():
+    for route in ROUTES:
+        for token in route.entities:
+            assert token == token.lower(), f"{route.qid}: {token!r}"
+
+
+def test_no_route_declares_a_generic_token():
+    """
+    Inferring entities from question text treated the bare word "malware" in
+    Q10 and Q18 as a process name, matching any row containing it. Declared
+    tokens must be specific enough to identify something.
+    """
+    banned = {"malware", "process", "file", "suspicious", "evidence", "system"}
+    for route in ROUTES:
+        assert not (set(route.entities) & banned), route.qid
+
+
+def test_out_of_scope_and_synthesis_routes_declare_no_entities():
+    for route in ROUTES:
+        if route.out_of_scope or route.synthesis:
+            assert not route.entities, route.qid
