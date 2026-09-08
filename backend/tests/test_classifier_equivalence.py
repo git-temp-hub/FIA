@@ -403,18 +403,27 @@ def test_classify_matches_legacy_without_corpus():
 # ==============================================================================
 
 
-def _large_realistic_corpus() -> list[dict]:
+def _realistic_corpus(scale: float = 1.0) -> list[dict]:
     """
     ~20k rows approximating a real 1.6 GB investigation: 50 processes, one
     with a 13k handle group, plus bulk dlllist/cmdline/netscan rows. Sized to
     keep the test fast while reproducing the same scale class as
     INV-20260812-B8E7AE (19,392 rows).
+
+    ``scale`` shrinks every group proportionally. Slicing the finished corpus
+    would not do: it is built in blocks, so a prefix is mostly cheap process
+    rows while the whole is dominated by one PID's 16k handle family. A
+    smaller corpus must keep the same shape, or a timing comparison between
+    the two measures the change in workload rather than the change in size.
     """
+
+    def sized(count: int) -> int:
+        return max(1, int(count * scale))
 
     corpus: list[dict] = []
     evidence_id = 1
 
-    for pid in range(1000, 2000, 10):
+    for pid in range(1000, 1000 + sized(100) * 10, 10):
         corpus.append(
             _record(evidence_id, "pslist",
                     {"pid": pid, "name": "svchost.exe",
@@ -436,14 +445,14 @@ def _large_realistic_corpus() -> list[dict]:
 
     # One 'busy' PID carrying a large handle family plus dlllist bulk.
     busy_pid = 9999
-    for handle in range(16000):
+    for handle in range(sized(16000)):
         corpus.append(
             _record(evidence_id, "handles",
                     {"pid": busy_pid, "object": f"File 0x{handle:x}",
                      "type": "File", "handlevalue": str(handle)})
         )
         evidence_id += 1
-    for module in range(3000):
+    for module in range(sized(3000)):
         corpus.append(
             _record(evidence_id, "dlllist",
                     {"pid": busy_pid,
@@ -479,11 +488,14 @@ def _large_realistic_corpus() -> list[dict]:
     return corpus
 
 
-def test_large_corpus_classification_scales_linearly():
-    """~20k rows classify in seconds via the prebuilt index (not ~47 minutes)."""
+def _large_realistic_corpus() -> list[dict]:
+    """The full-scale corpus used by the equivalence and timing tests."""
 
-    corpus = _large_realistic_corpus()
-    assert len(corpus) >= 20000
+    return _realistic_corpus(1.0)
+
+
+def _classify_corpus(corpus: list[dict]) -> tuple[float, dict[str, int]]:
+    """Classify a corpus, returning seconds per record and severity counts."""
 
     started = time.monotonic()
 
@@ -506,10 +518,48 @@ def test_large_corpus_classification_scales_linearly():
 
     elapsed = time.monotonic() - started
 
-    # Linear-scale expectation: the same 20k corpus at the pre-fix
-    # ~0.16 s/record rate would take roughly 53 minutes. The indexed path
-    # must finish in seconds.
-    assert elapsed < 60.0, f"classification took {elapsed:.2f}s (>= 60s)"
+    return elapsed / len(corpus), severity_counts
+
+
+# Pre-fix, classification ran at ~0.16 s/record, putting a 20k corpus at
+# roughly 53 minutes. The indexed path runs at roughly 0.002 s/record. The
+# ceiling sits an order of magnitude above that and an order of magnitude
+# below the pre-fix rate: wide enough to absorb a loaded machine, tight enough
+# to fail loudly if the index is bypassed.
+MAX_SECONDS_PER_RECORD = 0.02
+
+
+def test_large_corpus_classification_cost_per_record_is_bounded():
+    """
+    Classification cost per record stays within budget on a 20k corpus.
+
+    Asserted as a rate rather than a wall-clock deadline. The previous form
+    allowed 60s for the whole corpus, which passed at 57s on an idle machine
+    and failed at 119s while the rest of the suite ran -- reporting a
+    machine-load difference as a code regression. Wall time is a property of
+    the host; cost per record is a property of the algorithm.
+
+    Note on scaling: this deliberately does NOT assert linear scaling, because
+    the implementation is not linear. Measured with corpus shape held constant
+    (see _realistic_corpus), per-record classification cost doubles as the
+    corpus doubles -- 0.47, 0.97, 1.99 ms/record at 5k, 10k and 20k rows --
+    so total cost is quadratic. Index construction is flat (~0.009 ms/record)
+    and correlation-group size has no effect, so the growth is in the
+    per-record classify path rather than in indexing. The indexed work removed
+    a large constant factor, not the quadratic term. The ceiling above holds
+    to roughly 200k rows on current hardware; beyond that this test will fail
+    for a real reason rather than a spurious one.
+    """
+
+    corpus = _large_realistic_corpus()
+    assert len(corpus) >= 20000
+
+    rate, severity_counts = _classify_corpus(corpus)
+
+    assert rate < MAX_SECONDS_PER_RECORD, (
+        f"classification cost {rate * 1000:.2f} ms/record "
+        f"(limit {MAX_SECONDS_PER_RECORD * 1000:.0f} ms)"
+    )
 
     assert sum(severity_counts.values()) == len(corpus)
     assert severity_counts.get("high", 0) >= 1, (
