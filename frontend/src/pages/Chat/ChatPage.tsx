@@ -14,7 +14,8 @@ import {
   User,
 } from "lucide-react";
 
-import { getChatHistory, queryChat } from "../../services/chatService";
+import { getChatHistory, streamChat } from "../../services/chatService";
+import AnswerBody from "./AnswerBody";
 import {
   getOrCreateSessionId,
   getStoredSessionId,
@@ -31,6 +32,14 @@ interface ChatMessageView {
   confidence?: number | null;
   citations?: EvidenceReference[];
   createdAt?: string;
+  /**
+   * True while tokens are still arriving. The text shown is the model's raw
+   * output; confidence, citations and any corroboration notice are only
+   * known once generation finishes, so none are displayed until then.
+   */
+  streaming?: boolean;
+  /** What the backend is doing while no text has arrived yet. */
+  phase?: string;
 }
 
 function confidenceStyle(confidence: number): string {
@@ -123,9 +132,19 @@ function MessageBubble({ message }: { message: ChatMessageView }) {
               )}
           </div>
 
-          <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-100">
-            {message.content}
-          </p>
+          {message.content ? (
+            <AnswerBody content={message.content} />
+          ) : (
+            <p className="text-sm text-slate-500">
+              {message.phase === "generating"
+                ? "Writing the answer…"
+                : "Searching the evidence…"}
+            </p>
+          )}
+
+          {message.streaming && message.content && (
+            <span className="ml-0.5 inline-block h-4 w-2 animate-pulse bg-cyan-400 align-text-bottom" />
+          )}
         </div>
 
         {message.citations && message.citations.length > 0 && (
@@ -240,35 +259,84 @@ export default function ChatPage() {
 
     setSending(true);
 
+    // The placeholder fills in as tokens arrive, then is replaced wholesale
+    // by the checked answer once generation finishes.
+    const answerId = nextId();
+
+    setMessages((previous) => [
+      ...previous,
+      {
+        id: answerId,
+        role: "assistant",
+        content: "",
+        streaming: true,
+        phase: "retrieving",
+      },
+    ]);
+
+    let streamed = "";
+
     try {
-      const response = await queryChat(
+      const response = await streamChat(
         investigationId,
         trimmed,
         activeSession,
+        (chunk) => {
+          streamed += chunk;
+          setMessages((previous) =>
+            previous.map((message) =>
+              message.id === answerId
+                ? { ...message, content: streamed }
+                : message,
+            ),
+          );
+        },
+        6,
+        (phase) =>
+          setMessages((previous) =>
+            previous.map((message) =>
+              message.id === answerId ? { ...message, phase } : message,
+            ),
+          ),
       );
 
-      setMessages((previous) => [
-        ...previous,
-        {
-          id: nextId(),
-          role: "assistant",
-          content: response.answer,
-          confidence: response.confidence,
-          citations: response.citations,
-        },
-      ]);
-    } catch {
-      setMessages((previous) => [
-        ...previous,
-        {
-          id: nextId(),
-          role: "assistant",
-          content:
-            "Sorry, the assistant could not answer your question. " +
-            "Make sure the investigation has been indexed and the " +
-            "LLM service (Ollama) is running.",
-        },
-      ]);
+      // Deliberately the server's answer, not the accumulated stream: the
+      // two differ whenever an enforcement mechanism appended a
+      // corroboration notice or capped the confidence after generation.
+      setMessages((previous) =>
+        previous.map((message) =>
+          message.id === answerId
+            ? {
+                ...message,
+                content: response.answer,
+                confidence: response.confidence,
+                citations: response.citations,
+                streaming: false,
+              }
+            : message,
+        ),
+      );
+    } catch (streamError) {
+      const detail =
+        streamError instanceof Error && streamError.message
+          ? streamError.message
+          : "Make sure the investigation has been indexed and the " +
+            "LLM service (Ollama) is running.";
+
+      // Any partial text is discarded rather than left on screen: it has not
+      // been through citation parsing or the confidence ceilings, so it is
+      // not an answer this system is willing to stand behind.
+      setMessages((previous) =>
+        previous.map((message) =>
+          message.id === answerId
+            ? {
+                ...message,
+                content: `Sorry, the assistant could not answer your question. ${detail}`,
+                streaming: false,
+              }
+            : message,
+        ),
+      );
     } finally {
       setSending(false);
     }

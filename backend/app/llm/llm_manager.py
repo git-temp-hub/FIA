@@ -6,7 +6,7 @@ It does not perform retrieval, prompt construction, or response parsing.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 from ollama import Client
@@ -105,11 +105,72 @@ class LLMManager:
             self._model_name,
         )
 
+    def _generate_streaming(
+        self,
+        messages: list[dict[str, str]],
+        options: dict[str, Any],
+        on_token: Callable[[str], None],
+    ) -> str:
+        """Stream a completion, forwarding chunks and returning the whole.
+
+        The accumulated text is what the caller receives, so a streamed
+        answer is indistinguishable downstream from a non-streamed one. A
+        failing ``on_token`` callback must not lose the generation already
+        paid for, so its errors are logged and swallowed: the client may miss
+        a chunk, but the complete text still returns and is still parsed,
+        calibrated and enforced against.
+        """
+
+        chunks: list[str] = []
+
+        for part in self.client.chat(
+            model=self._model_name,
+            messages=messages,
+            stream=True,
+            options=options,
+        ):
+
+            piece = ""
+
+            if isinstance(part, dict):
+                message = part.get("message") or {}
+                if isinstance(message, dict):
+                    piece = message.get("content") or ""
+            else:
+                message = getattr(part, "message", None)
+                if message is not None:
+                    piece = getattr(message, "content", "") or ""
+
+            if not piece:
+                continue
+
+            chunks.append(piece)
+
+            try:
+                on_token(piece)
+            except Exception as exc:
+                logger.warning(
+                    "Streaming consumer raised on a chunk; continuing "
+                    "accumulation: %s",
+                    exc,
+                )
+
+        content = "".join(chunks)
+
+        logger.info(
+            "Completed streamed LLM inference (%d chunks, %d chars).",
+            len(chunks),
+            len(content),
+        )
+
+        return content
+
     def generate(
         self,
         prompt: str,
         system_prompt: str | None = None,
         temperature: float | None = None,
+        on_token: Callable[[str], None] | None = None,
     ) -> str:
         """Generate text from the configured Ollama model.
 
@@ -117,9 +178,17 @@ class LLMManager:
             prompt: The user prompt to send to the model.
             system_prompt: Optional system prompt to include in the request.
             temperature: Optional override for the configured temperature.
+            on_token: Optional callback invoked with each chunk as it
+                arrives. Supplying it switches the request to Ollama's
+                streaming API.
 
         Returns:
-            The generated text content.
+            The complete generated text, whether or not it was streamed.
+            This contract is deliberate: every downstream safety mechanism
+            (citation parsing, confidence calibration, signature
+            corroboration, malfind qualification) runs on the finished text,
+            so streaming must change only how the text arrives, never what
+            the caller receives.
 
         Raises:
             RuntimeError: If the model is unavailable or the request fails.
@@ -149,15 +218,22 @@ class LLMManager:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
+        options = {
+            "temperature": effective_temperature,
+            "num_ctx": self._settings.llm_context_window,
+        }
+
         try:
+            if on_token is not None:
+                return self._generate_streaming(
+                    messages, options, on_token
+                )
+
             response = self.client.chat(
                 model=self._model_name,
                 messages=messages,
                 stream=False,
-                options={
-                    "temperature": effective_temperature,
-                    "num_ctx": self._settings.llm_context_window,
-                },
+                options=options,
             )
         except (TimeoutError, httpx.TimeoutException) as exc:
             # Distinguished from a connection failure on purpose: a read

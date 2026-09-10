@@ -18,6 +18,7 @@ Author:
 from __future__ import annotations
 
 import threading
+from typing import Callable
 
 from sqlalchemy.orm import Session
 
@@ -250,6 +251,7 @@ class AIInvestigationService:
         question: str,
         top_k: int = 6,
         db: Session | None = None,
+        on_token: Callable[[str], None] | None = None,
     ) -> dict:
         """
         Produce an evidence-backed answer for an investigator question.
@@ -269,6 +271,12 @@ class AIInvestigationService:
         db : Session | None
             Active database session. When ``None``, only the semantic path
             is available and no evidence claims are made from an empty index.
+
+        on_token : Callable[[str], None] | None
+            Invoked with each chunk of the model's raw output as it is
+            generated. Purely a delivery concern: the returned dict is
+            identical either way, and every enforcement mechanism still runs
+            on the finished text.
 
         Returns
         -------
@@ -386,7 +394,13 @@ class AIInvestigationService:
                 pinned_ids=pinned_ids,
                 entities=entities,
             ),
-            llm_generate=self._llm_manager.generate,
+            # Streaming changes only how the text reaches the client. The
+            # full text is still returned here and still passes through
+            # citation parsing, calibration, corroboration and the malfind
+            # ceiling below, exactly as a non-streamed answer does.
+            llm_generate=lambda prompt: self._llm_manager.generate(
+                prompt, on_token=on_token
+            ),
             prompt_builder=prompt_builder,
             response_parser=self._response_parser,
             lazy_index=lambda: self._maybe_lazy_index(investigation_id),
